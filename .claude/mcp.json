@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "mcp-brasil": {
+      "command": "uvx",
+      "args": ["--from", "mcp-brasil", "python", "-m", "mcp_brasil.server"],
+      "env": {
+        "TRANSPARENCIA_API_KEY": "PREENCHER"
+      }
+    }
+  }
+}
