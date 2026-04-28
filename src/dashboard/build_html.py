@@ -65,6 +65,75 @@ def _build_series(gdf: gpd.GeoDataFrame) -> dict:
     return result
 
 
+def _build_clusters(gdf: gpd.GeoDataFrame) -> list:
+    if "cluster_id" not in gdf.columns:
+        return []
+
+    # Perfil estrutural: média histórica por município, depois por cluster
+    agg = (
+        gdf.groupby(["cod_ibge", "cluster_id"])
+        .agg(
+            taxa=("taxa_desmatamento", "mean"),
+            area=("area_km2", "mean"),
+            pop=("populacao", "mean"),
+            pib=("pib_agropecuario", "mean"),
+            uc=("area_uc_pct", "mean"),
+            ti=("area_ti_pct", "mean"),
+            autos=("autos_ibama", "sum"),
+        )
+        .reset_index()
+    )
+    profiles = (
+        agg.groupby("cluster_id")
+        .agg(
+            n=("cod_ibge", "count"),
+            taxa=("taxa", "mean"),
+            area=("area", "mean"),
+            pop=("pop", "mean"),
+            pib=("pib", "mean"),
+            uc=("uc", "mean"),
+            ti=("ti", "mean"),
+            autos=("autos", "mean"),
+        )
+        .reset_index()
+        .sort_values("cluster_id")
+    )
+
+    def _label(row) -> str:
+        if int(row["cluster_id"]) == -1:
+            return "Ruído (sem cluster)"
+        prot = row["uc"] + row["ti"]
+        if prot > 50:
+            return "Alta proteção territorial (UC + TI)"
+        if row["uc"] > 25 and row["ti"] < 5:
+            return "Alta cobertura de Unidades de Conservação"
+        if row["ti"] > 15 and row["autos"] > 150:
+            return "Fronteira com TIs e alta fiscalização"
+        if row["taxa"] > 0.18 and row["autos"] > 150:
+            return "Alta pressão agrícola — fronteira ativa"
+        if row["area"] > 10_000:
+            return "Grandes municípios com desmatamento moderado"
+        if row["area"] < 3_000 and row["pib"] < 80_000:
+            return "Pequenos municípios — baixa pressão"
+        return "Perfil intermediário"
+
+    result = []
+    for _, row in profiles.iterrows():
+        result.append({
+            "id":    int(row["cluster_id"]),
+            "label": _label(row),
+            "n":     int(row["n"]),
+            "taxa":  round(float(row["taxa"]), 4),
+            "area":  round(float(row["area"]) / 1000, 1),
+            "pop":   round(float(row["pop"]) / 1000, 1),
+            "pib":   round(float(row["pib"]) / 1000, 1),
+            "uc":    round(float(row["uc"]), 1),
+            "ti":    round(float(row["ti"]), 1),
+            "autos": round(float(row["autos"]), 0),
+        })
+    return result
+
+
 def _load_metrics() -> dict:
     p = Path(_METRICS)
     if not p.exists():
@@ -96,6 +165,9 @@ def build_dashboard(
     logger.info("Extraindo SERIES...")
     series   = _build_series(gdf)
 
+    logger.info("Extraindo perfis de CLUSTERS...")
+    clusters = _build_clusters(gdf)
+
     metrics  = _load_metrics()
 
     anos_js     = _json(anos)
@@ -103,16 +175,18 @@ def build_dashboard(
     geodata_js  = _json(geodata)
     alldata_js  = _json(all_data)
     series_js   = _json(series)
+    clusters_js = _json(clusters)
     metrics_js  = _json(metrics)
     today       = date.today().strftime("%d/%m/%Y")
 
-    html = _HTML_TEMPLATE.replace("__ANOS__",    anos_js)   \
-                         .replace("__UFS__",     ufs_js)    \
-                         .replace("__GEODATA__", geodata_js)\
-                         .replace("__ALLDATA__", alldata_js)\
-                         .replace("__SERIES__",  series_js) \
-                         .replace("__METRICS__", metrics_js)\
-                         .replace("__TODAY__",   today)     \
+    html = _HTML_TEMPLATE.replace("__ANOS__",     anos_js)    \
+                         .replace("__UFS__",      ufs_js)     \
+                         .replace("__GEODATA__",  geodata_js) \
+                         .replace("__ALLDATA__",  alldata_js) \
+                         .replace("__SERIES__",   series_js)  \
+                         .replace("__CLUSTERS__", clusters_js)\
+                         .replace("__METRICS__",  metrics_js) \
+                         .replace("__TODAY__",    today)      \
                          .replace("__LAST_ANO__", str(last_ano))
 
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
@@ -207,6 +281,7 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
     <div class="flex border-b border-slate-200 bg-white px-4 shrink-0">
       <button class="tab-btn active py-2 px-4 text-sm mr-1" data-tab="mapa">🗺️ Mapa</button>
       <button class="tab-btn py-2 px-4 text-sm mr-1 text-slate-500" data-tab="ranking">🏆 Ranking</button>
+      <button class="tab-btn py-2 px-4 text-sm mr-1 text-slate-500" data-tab="clusters">🔵 Clusters</button>
       <button class="tab-btn py-2 px-4 text-sm mr-1 text-slate-500" data-tab="tendencia">📈 Tendência</button>
       <button class="tab-btn py-2 px-4 text-sm text-slate-500" data-tab="sobre">ℹ️ Sobre</button>
     </div>
@@ -238,6 +313,15 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
             <tbody id="ranking-body" class="text-sm"></tbody>
           </table>
         </div>
+      </div>
+
+      <!-- Clusters -->
+      <div id="tab-clusters" class="p-4 hidden">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-base font-semibold">Perfis de Municípios — HDBSCAN</h2>
+          <span class="text-xs text-slate-400">Silhouette = 0.225 · 4 clusters + ruído</span>
+        </div>
+        <div id="clusters-cards" class="grid grid-cols-1 gap-4 max-w-5xl"></div>
       </div>
 
       <!-- Tendência -->
@@ -296,12 +380,13 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
 
 <script>
 // ── Dados embutidos ────────────────────────────────────────────────────────────
-const ANOS    = __ANOS__;
-const UFS     = __UFS__;
-const GEODATA = __GEODATA__;
-const ALLDATA = __ALLDATA__;
-const SERIES  = __SERIES__;
-const METRICS = __METRICS__;
+const ANOS     = __ANOS__;
+const UFS      = __UFS__;
+const GEODATA  = __GEODATA__;
+const ALLDATA  = __ALLDATA__;
+const SERIES   = __SERIES__;
+const CLUSTERS = __CLUSTERS__;
+const METRICS  = __METRICS__;
 
 // ── Estado ────────────────────────────────────────────────────────────────────
 const state = {
@@ -541,16 +626,70 @@ function initSidebar() {
   });
 }
 
+// ── Clusters ──────────────────────────────────────────────────────────────────
+const CLUSTER_PALETTE = ['#e41a1c','#377eb8','#4daf4a','#984ea3','#ff7f00'];
+const CLUSTER_BG      = ['#fde8e8','#dbeafe','#dcfce7','#f3e8ff','#ffedd5'];
+
+function renderClusters() {
+  const container = document.getElementById('clusters-cards');
+  if (!container || !CLUSTERS.length) return;
+
+  container.innerHTML = CLUSTERS.map(c => {
+    const isNoise = c.id === -1;
+    const color   = isNoise ? '#94a3b8' : (CLUSTER_PALETTE[c.id % CLUSTER_PALETTE.length]);
+    const bg      = isNoise ? '#f1f5f9' : (CLUSTER_BG[c.id % CLUSTER_BG.length]);
+    const title   = isNoise ? 'Ruído (−1) — sem cluster' : `Cluster ${c.id} — ${c.label}`;
+
+    const stats = [
+      { label: 'Municípios',           value: c.n.toLocaleString('pt-BR') },
+      { label: 'Taxa desmat. média',   value: `${c.taxa.toFixed(4)} %/ano` },
+      { label: 'Área média',           value: `${c.area.toLocaleString('pt-BR')} mil km²` },
+      { label: 'Pop. média',           value: `${c.pop.toLocaleString('pt-BR')} mil hab` },
+      { label: 'PIB agro médio',       value: `R$ ${c.pib.toLocaleString('pt-BR')} M` },
+      { label: 'Cobertura UC',         value: `${c.uc.toFixed(1)}%` },
+      { label: 'Cobertura TI',         value: `${c.ti.toFixed(1)}%` },
+      { label: 'Autos IBAMA (média)',  value: c.autos.toLocaleString('pt-BR') },
+    ];
+
+    // Barra proporcional para taxa (max ~0.25)
+    const barW = Math.min(100, (c.taxa / 0.25) * 100).toFixed(1);
+
+    return `
+    <div class="rounded-lg border p-4" style="border-color:${color}40;background:${bg}">
+      <div class="flex items-center gap-2 mb-3">
+        <span style="display:inline-block;width:14px;height:14px;background:${color};border-radius:3px;flex-shrink:0"></span>
+        <span class="font-semibold text-sm" style="color:${isNoise ? '#64748b' : '#0f172a'}">${title}</span>
+      </div>
+      <div class="mb-3">
+        <div class="text-xs text-slate-500 mb-1">Taxa de desmatamento média</div>
+        <div class="w-full bg-slate-200 rounded-full h-2">
+          <div class="h-2 rounded-full" style="width:${barW}%;background:${color}"></div>
+        </div>
+        <div class="text-xs text-slate-600 mt-0.5">${c.taxa.toFixed(4)} %/ano</div>
+      </div>
+      <div class="grid grid-cols-4 gap-x-4 gap-y-1">
+        ${stats.map(s => `
+          <div>
+            <div class="text-xs text-slate-400">${s.label}</div>
+            <div class="text-sm font-medium text-slate-700">${s.value}</div>
+          </div>
+        `).join('')}
+      </div>
+    </div>`;
+  }).join('');
+}
+
 // ── Tab switching ─────────────────────────────────────────────────────────────
 document.querySelectorAll('.tab-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     const tab = btn.dataset.tab;
-    ['mapa','ranking','tendencia','sobre'].forEach(t => {
+    ['mapa','ranking','clusters','tendencia','sobre'].forEach(t => {
       document.getElementById('tab-' + t).classList.toggle('hidden', t !== tab);
     });
     if (tab === 'tendencia') buildCharts();
+    if (tab === 'clusters')  renderClusters();
     if (tab === 'mapa') setTimeout(() => map.invalidateSize(), 50);
   });
 });
