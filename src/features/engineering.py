@@ -18,8 +18,41 @@ from pathlib import Path
 import geopandas as gpd
 import numpy as np
 import pandas as pd
+from shapely.geometry import MultiPolygon, Polygon
+from shapely.ops import unary_union
 
 logger = logging.getLogger(__name__)
+
+
+def _normalize_geom_for_queen(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    """
+    Garante que o GeoDataFrame contém apenas Polygon/MultiPolygon.
+
+    `Queen.from_dataframe` levanta TypeError para GeometryCollection.
+    Esta função extrai apenas as partes poligonais de geometrias mistas.
+    Municípios que resultam em geometria nula/vazia são removidos.
+    """
+    def extract_poly(g):
+        if g is None or g.is_empty:
+            return None
+        if isinstance(g, (Polygon, MultiPolygon)):
+            return g if g.is_valid else g.buffer(0)
+        polys = [
+            part for part in getattr(g, "geoms", [])
+            if isinstance(part, (Polygon, MultiPolygon))
+        ]
+        if not polys:
+            return None
+        result = unary_union(polys)
+        return result if not result.is_empty else None
+
+    gdf = gdf.copy()
+    gdf["geometry"] = gdf["geometry"].apply(extract_poly)
+    removed = gdf["geometry"].isna().sum()
+    if removed > 0:
+        logger.info("  %d municípios removidos (geometria não poligonal).", removed)
+    gdf = gdf[gdf["geometry"].notna()].reset_index(drop=True)
+    return gdf
 
 
 # ── TASK-07: Lag features e rolling window ───────────────────────────────────
@@ -172,6 +205,9 @@ def add_local_moran(
         .copy()
         .reset_index(drop=True)
     )
+
+    # Queen.from_dataframe não aceita GeometryCollection — extrair só partes poligonais
+    gdf_geom = _normalize_geom_for_queen(gdf_geom)
     logger.info("  Construindo pesos Queen (%d municípios)...", len(gdf_geom))
     w = Queen.from_dataframe(gdf_geom, silence_warnings=True)
     w.transform = "r"  # row-standardize
@@ -199,11 +235,12 @@ def add_local_moran(
     )
 
     # Reordenar colunas (local_moran_i antes de geometry)
-    geom_col = gdf.pop("geometry")
-    gdf["geometry"] = geom_col
-    all_cols = list(gdf.columns)
-    non_geom = [c for c in all_cols if c != "geometry"]
-    gdf = gdf[non_geom + ["geometry"]].copy()
+    non_geom = [c for c in gdf.columns if c != "geometry"]
+    gdf = gpd.GeoDataFrame(
+        gdf[non_geom].copy(),
+        geometry=gdf["geometry"].values,
+        crs="EPSG:4326",
+    )
 
     # Scatterplot de Moran
     _plot_moran_scatter(gdf, moran_plot_path)
