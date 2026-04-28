@@ -291,6 +291,9 @@ def _plot_clusters_map(
         return unary_union(polys) if polys else g
     gdf_mapa["geometry"] = gdf_mapa["geometry"].apply(_to_multipolygon)
 
+    # Perfil estatístico por cluster para o painel descritivo
+    profiles = _describe_clusters(df_mun)
+
     m = folium.Map(location=[-5, -55], zoom_start=5, tiles="CartoDB positron")
 
     # Um único GeoJson com todas as features — muito mais eficiente que 772 layers
@@ -309,17 +312,125 @@ def _plot_clusters_map(
         ),
     ).add_to(m)
 
-    # Legenda
-    legend_html = "<div style='position:fixed;bottom:30px;left:30px;background:white;padding:10px;border:1px solid #ccc;z-index:1000;font-size:12px;'>"
-    legend_html += "<b>Clusters HDBSCAN</b><br>"
-    for c_id, color in sorted(color_map.items()):
-        label = f"Cluster {c_id}" if c_id >= 0 else "Ruído (-1)"
-        legend_html += f"<i style='background:{color};width:12px;height:12px;display:inline-block;margin-right:5px;'></i>{label}<br>"
-    legend_html += "</div>"
-    m.get_root().html.add_child(folium.Element(legend_html))
+    # Painel lateral direito com descrição dos clusters
+    panel_html = _build_cluster_panel_html(profiles, color_map)
+    m.get_root().html.add_child(folium.Element(panel_html))
 
     m.save(mapa_path)
     logger.info("Mapa de clusters salvo em '%s'.", mapa_path)
+
+
+def _cluster_label(row: pd.Series) -> str:
+    """Rótulo descritivo automático baseado no perfil dominante do cluster."""
+    taxa = row["taxa_desfm_media"]
+    uc   = row["uc_pct_media"]
+    ti   = row["ti_pct_media"]
+    autos = row["autos_ibama_media"]
+    area  = row["area_km2_media"]
+    pib   = row["pib_agro_media"]
+    prot  = uc + ti
+
+    if prot > 50:
+        return "Alta proteção territorial (UC + TI)"
+    if uc > 25 and ti < 5:
+        return "Alta cobertura de Unidades de Conservação"
+    if ti > 15 and autos > 150:
+        return "Fronteira com TIs e alta fiscalização"
+    if taxa > 0.18 and autos > 150:
+        return "Alta pressão agrícola — fronteira ativa"
+    if area > 10_000:
+        return "Grandes municípios com desmatamento moderado"
+    if area < 3_000 and pib < 80_000:
+        return "Pequenos municípios — baixa pressão"
+    return "Perfil intermediário"
+
+
+def _build_cluster_panel_html(profiles: pd.DataFrame, color_map: dict) -> str:
+    """Gera HTML do painel lateral com a descrição de cada cluster."""
+    cards = ""
+    profiles_sorted = profiles.sort_values("cluster_id")
+
+    # Adicionar linha do ruído manualmente
+    n_noise = 0  # será sobrescrito se disponível via df_mun, mas profiles só tem clusters reais
+
+    for _, row in profiles_sorted.iterrows():
+        cid   = int(row["cluster_id"])
+        color = color_map.get(cid, "#94a3b8")
+        label = _cluster_label(row)
+        n     = int(row["n_municipios"])
+        taxa  = row["taxa_desfm_media"]
+        area  = row["area_km2_media"] / 1000
+        pop   = row["pop_media"] / 1000
+        pib   = row["pib_agro_media"] / 1000
+        uc    = row["uc_pct_media"]
+        ti    = row["ti_pct_media"]
+        autos = row["autos_ibama_media"]
+
+        # Barra proporcional (max referência = 0.25 %/ano)
+        bar_w = min(100, (taxa / 0.25) * 100)
+
+        cards += f"""
+        <div style="border:1px solid {color}40;border-radius:6px;padding:10px;margin-bottom:8px;background:#fff;">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
+            <span style="display:inline-block;width:12px;height:12px;background:{color};border-radius:2px;flex-shrink:0;"></span>
+            <b style="font-size:12px;color:#0f172a;">Cluster {cid}</b>
+            <span style="font-size:11px;color:#64748b;"> — {n} municípios</span>
+          </div>
+          <div style="font-size:11px;color:#334155;margin-bottom:6px;font-style:italic;">{label}</div>
+          <div style="margin-bottom:6px;">
+            <div style="font-size:10px;color:#94a3b8;margin-bottom:2px;">Taxa desmat. média</div>
+            <div style="background:#e2e8f0;border-radius:4px;height:6px;">
+              <div style="width:{bar_w:.1f}%;background:{color};height:6px;border-radius:4px;"></div>
+            </div>
+            <div style="font-size:10px;color:#475569;margin-top:1px;">{taxa:.4f} %/ano</div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 8px;font-size:10px;">
+            <div><span style="color:#94a3b8;">Área média</span><br><b>{area:.1f} mil km²</b></div>
+            <div><span style="color:#94a3b8;">Pop. média</span><br><b>{pop:.1f} mil hab</b></div>
+            <div><span style="color:#94a3b8;">Cobertura UC</span><br><b>{uc:.1f}%</b></div>
+            <div><span style="color:#94a3b8;">Cobertura TI</span><br><b>{ti:.1f}%</b></div>
+            <div><span style="color:#94a3b8;">PIB agro médio</span><br><b>R$ {pib:.1f} M</b></div>
+            <div><span style="color:#94a3b8;">Autos IBAMA</span><br><b>{autos:.0f}/mun.</b></div>
+          </div>
+        </div>"""
+
+    # Card do ruído (sem stats detalhadas)
+    noise_color = color_map.get(-1, "#94a3b8")
+    cards += f"""
+    <div style="border:1px solid {noise_color}40;border-radius:6px;padding:10px;margin-bottom:8px;background:#f8fafc;">
+      <div style="display:flex;align-items:center;gap:6px;">
+        <span style="display:inline-block;width:12px;height:12px;background:{noise_color};border-radius:2px;"></span>
+        <b style="font-size:12px;color:#64748b;">Ruído (−1)</b>
+      </div>
+      <div style="font-size:11px;color:#94a3b8;margin-top:4px;font-style:italic;">
+        Municípios sem perfil dominante — não se encaixam em nenhum cluster.
+      </div>
+    </div>"""
+
+    return f"""
+    <div style="
+        position: fixed;
+        top: 80px;
+        right: 10px;
+        width: 280px;
+        max-height: calc(100vh - 100px);
+        overflow-y: auto;
+        background: white;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 12px;
+        z-index: 1000;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+        font-family: system-ui, sans-serif;
+    ">
+      <div style="font-size:13px;font-weight:700;color:#0f172a;margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid #22c55e;">
+        🔵 Clusters HDBSCAN
+      </div>
+      {cards}
+      <div style="font-size:10px;color:#94a3b8;text-align:center;margin-top:4px;">
+        Silhouette = 0.225 · {len(profiles)} clusters
+      </div>
+    </div>"""
 
 
 def _write_cluster_description(
