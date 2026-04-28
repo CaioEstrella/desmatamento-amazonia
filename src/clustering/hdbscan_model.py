@@ -279,26 +279,35 @@ def _plot_clusters_map(
     gdf_mapa["taxa_media"] = gdf_mapa["cod_ibge"].map(
         df_mun.set_index("cod_ibge")["taxa_desmatamento"].to_dict()
     )
+    # Normalizar geometrias: GeoJsonTooltip não suporta GeometryCollection
+    from shapely.ops import unary_union
+    from shapely.geometry import MultiPolygon, Polygon
+    def _to_multipolygon(g):
+        if g is None or g.is_empty:
+            return g
+        if isinstance(g, (Polygon, MultiPolygon)):
+            return g
+        polys = [p for p in getattr(g, "geoms", []) if isinstance(p, (Polygon, MultiPolygon))]
+        return unary_union(polys) if polys else g
+    gdf_mapa["geometry"] = gdf_mapa["geometry"].apply(_to_multipolygon)
 
     m = folium.Map(location=[-5, -55], zoom_start=5, tiles="CartoDB positron")
 
-    for _, row in gdf_mapa.iterrows():
-        color = color_map.get(row["cluster_id"], "#cccccc")
-        cluster_label = (
-            f"Cluster {row['cluster_id']}" if row["cluster_id"] >= 0 else "Ruído"
-        )
-        folium.GeoJson(
-            row["geometry"].__geo_interface__,
-            style_function=lambda x, c=color: {
-                "fillColor": c, "color": "#333333",
-                "weight": 0.3, "fillOpacity": 0.7,
-            },
-            tooltip=folium.Tooltip(
-                f"<b>{row['municipio']} ({row['uf']})</b><br>"
-                f"{cluster_label}<br>"
-                f"Taxa média: {row.get('taxa_media', 0):.3f}%/ano"
-            ),
-        ).add_to(m)
+    # Um único GeoJson com todas as features — muito mais eficiente que 772 layers
+    folium.GeoJson(
+        gdf_mapa.__geo_interface__,
+        style_function=lambda feature: {
+            "fillColor": color_map.get(feature["properties"]["cluster_id"], "#94a3b8"),
+            "color": "#334155",
+            "weight": 0.3,
+            "fillOpacity": 0.75,
+        },
+        tooltip=folium.GeoJsonTooltip(
+            fields=["municipio", "uf", "cluster_id", "taxa_media"],
+            aliases=["Município", "UF", "Cluster", "Taxa média (%/ano)"],
+            localize=True,
+        ),
+    ).add_to(m)
 
     # Legenda
     legend_html = "<div style='position:fixed;bottom:30px;left:30px;background:white;padding:10px;border:1px solid #ccc;z-index:1000;font-size:12px;'>"
