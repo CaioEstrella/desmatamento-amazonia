@@ -265,7 +265,7 @@ def _plot_clusters_map(
         "#66c2a5", "#fc8d62",
     ]
     color_map = {i: palette[i % len(palette)] for i in range(n_clusters)}
-    color_map[-1] = "#cccccc"
+    color_map[-1] = "#94a3b8"  # slate-400 — visível sobre fundo branco CartoDB
 
     cluster_by_mun = df_mun.set_index("cod_ibge")["cluster_id"].to_dict()
 
