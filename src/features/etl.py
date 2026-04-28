@@ -228,6 +228,25 @@ def build_dataset(
         crs="EPSG:4326",
     )
 
+    # Normalizar geometrias: remover partes não-poligonais (LineString, Point)
+    # que surgem do WFS e causam artefatos visuais no Leaflet/Folium
+    from shapely.ops import unary_union
+    from shapely.geometry import MultiPolygon, Polygon as _Polygon
+
+    def _strip_to_polygons(g):
+        if g is None or g.is_empty or isinstance(g, (MultiPolygon, _Polygon)):
+            return g
+        polys = [
+            p for p in getattr(g, "geoms", [])
+            if isinstance(p, (_Polygon, MultiPolygon))
+        ]
+        return unary_union(polys) if polys else g
+
+    n_gc = (gdf_result.geometry.geom_type == "GeometryCollection").sum()
+    if n_gc > 0:
+        logger.info("  Normalizando %d GeometryCollections → Polygon/MultiPolygon", n_gc)
+        gdf_result["geometry"] = gdf_result["geometry"].apply(_strip_to_polygons)
+
     # ── 10. Ordenar colunas ────────────────────────────────────────────────────
     cols_ordered = [
         "cod_ibge", "municipio", "uf", "ano",
