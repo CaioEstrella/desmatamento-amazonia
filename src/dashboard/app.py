@@ -20,8 +20,6 @@ import json
 from pathlib import Path
 
 import folium
-from branca.element import MacroElement
-from jinja2 import Template
 import geopandas as gpd
 import numpy as np
 import pandas as pd
@@ -424,31 +422,28 @@ with tab_mapa:
             ),
         ).add_to(m)
 
-        _legend = MacroElement()
-        _legend._template = Template("""
-{% macro script(this, kwargs) %}
-(function() {
-  var legend = L.control({position: 'bottomright'});
-  legend.onAdd = function() {
-    var div = L.DomUtil.create('div');
-    div.style.cssText = 'background:white;padding:10px 14px;border-radius:8px;'
-      + 'box-shadow:0 2px 8px rgba(0,0,0,.15);font-size:12px;line-height:1.9;font-family:sans-serif';
-    div.innerHTML =
-      '<b style="font-size:13px">Score de Risco</b><br>'
-      + '<span style="display:inline-block;width:12px;height:12px;background:#22c55e;border-radius:2px;margin-right:5px;vertical-align:middle"></span>0–20<br>'
-      + '<span style="display:inline-block;width:12px;height:12px;background:#86efac;border-radius:2px;margin-right:5px;vertical-align:middle"></span>21–40<br>'
-      + '<span style="display:inline-block;width:12px;height:12px;background:#eab308;border-radius:2px;margin-right:5px;vertical-align:middle"></span>41–60<br>'
-      + '<span style="display:inline-block;width:12px;height:12px;background:#f97316;border-radius:2px;margin-right:5px;vertical-align:middle"></span>61–80<br>'
-      + '<span style="display:inline-block;width:12px;height:12px;background:#ef4444;border-radius:2px;margin-right:5px;vertical-align:middle"></span>81–100';
-    return div;
-  };
-  legend.addTo({{ this._parent.get_name() }});
-})();
-{% endmacro %}
-""")
-        _legend.add_to(m)
-
         components.html(m._repr_html_(), height=520, scrolling=False)
+
+        # Legenda fora do iframe — renderizada pelo Streamlit, sempre visível
+        _legend_items = "".join(
+            f"<span style='display:inline-flex;align-items:center;gap:5px;margin-right:16px'>"
+            f"<span style='width:16px;height:16px;background:{c};border-radius:3px;flex-shrink:0'></span>"
+            f"<span style='font-size:12px;color:#374151'>{lbl}</span></span>"
+            for lbl, c in [
+                ("0–20",   "#22c55e"),
+                ("21–40",  "#86efac"),
+                ("41–60",  "#eab308"),
+                ("61–80",  "#f97316"),
+                ("81–100", "#ef4444"),
+            ]
+        )
+        st.markdown(
+            f"<div style='display:flex;flex-wrap:wrap;align-items:center;gap:4px;"
+            f"padding:6px 2px;border-top:1px solid #e2e8f0;margin-top:4px'>"
+            f"<span style='font-size:12px;font-weight:600;color:#374151;margin-right:4px'>"
+            f"Score de Risco:</span>{_legend_items}</div>",
+            unsafe_allow_html=True,
+        )
 
 # ── Tab 2: Ranking ────────────────────────────────────────────────────────────
 with tab_ranking:
