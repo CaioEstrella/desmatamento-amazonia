@@ -120,6 +120,10 @@ def _cluster_label_html(row) -> str:
     return "Perfil intermediário de expansão agrícola"
 
 
+_RISK_COLORS = ["#22c55e", "#86efac", "#eab308", "#f97316", "#ef4444"]
+_RISK_BG     = ["#dcfce7", "#d1fae5", "#fef9c3", "#ffedd5", "#fee2e2"]
+
+
 def _build_clusters(gdf: gpd.GeoDataFrame) -> list:
     if "cluster_id" not in gdf.columns:
         return []
@@ -179,6 +183,18 @@ def _build_clusters(gdf: gpd.GeoDataFrame) -> list:
             "ti":    round(float(row["ti"]), 1),
             "autos": round(float(row["autos"]), 0),
         })
+
+    # Cores baseadas em rank de risco: menor taxa → verde, maior taxa → vermelho
+    valid = sorted([r for r in result if r["id"] >= 0], key=lambda x: x["taxa"])
+    n = len(valid)
+    for rank, cluster in enumerate(valid):
+        idx = round(rank * (len(_RISK_COLORS) - 1) / max(n - 1, 1))
+        cluster["color"] = _RISK_COLORS[idx]
+        cluster["bg"]    = _RISK_BG[idx]
+    for r in result:
+        if r["id"] == -1:
+            r["color"] = "#94a3b8"
+            r["bg"]    = "#f1f5f9"
     return result
 
 
@@ -1019,8 +1035,10 @@ function initSidebar() {
 }
 
 // ── Clusters ──────────────────────────────────────────────────────────────────
-const CLUSTER_PALETTE = ['#e41a1c','#377eb8','#4daf4a','#984ea3','#ff7f00'];
-const CLUSTER_BG      = ['#fde8e8','#dbeafe','#dcfce7','#f3e8ff','#ffedd5'];
+// Mapa de cor por cluster_id (cores atribuídas por rank de risco em Python)
+const clusterColorMap = {};
+const clusterBgMap = {};
+CLUSTERS.forEach(c => { clusterColorMap[c.id] = c.color; clusterBgMap[c.id] = c.bg ?? '#f8fafc'; });
 
 function renderClusters() {
   const container = document.getElementById('clusters-cards');
@@ -1035,8 +1053,8 @@ function renderClusters() {
 
   container.innerHTML = CLUSTERS.map(c => {
     const isNoise = c.id === -1;
-    const color   = isNoise ? '#94a3b8' : (CLUSTER_PALETTE[c.id % CLUSTER_PALETTE.length]);
-    const bg      = isNoise ? '#f1f5f9' : (CLUSTER_BG[c.id % CLUSTER_BG.length]);
+    const color   = clusterColorMap[c.id] ?? '#94a3b8';
+    const bg      = clusterBgMap[c.id]    ?? '#f1f5f9';
     const title   = isNoise ? 'Ruído (−1) — sem cluster' : `Cluster ${c.id} — ${c.label}`;
 
     const stats = [
@@ -1100,7 +1118,7 @@ function buildClusterMap() {
   L.geoJSON(GEODATA, {
     style(feature) {
       const cid = clusterLookup[feature.properties.cod_ibge] ?? -1;
-      const color = cid === -1 ? '#94a3b8' : (CLUSTER_PALETTE[cid % CLUSTER_PALETTE.length]);
+      const color = clusterColorMap[cid] ?? '#94a3b8';
       return { fillColor: color, fillOpacity: 0.75, color: '#94a3b8', weight: 0.4 };
     },
     onEachFeature(feature, layer) {
@@ -1120,7 +1138,7 @@ function buildClusterMap() {
     div.style.cssText = 'background:white;padding:8px 12px;font-size:11px;line-height:1.7;border-radius:6px;max-width:240px';
     div.innerHTML = '<b style="font-size:12px">Clusters HDBSCAN</b><br>' +
       CLUSTERS.map(c => {
-        const color = c.id === -1 ? '#94a3b8' : CLUSTER_PALETTE[c.id % CLUSTER_PALETTE.length];
+        const color = clusterColorMap[c.id] ?? '#94a3b8';
         const lbl   = c.label.length > 32 ? c.label.slice(0, 30) + '…' : c.label;
         return `<span style="display:inline-block;width:10px;height:10px;background:${color};border-radius:2px;margin-right:4px;vertical-align:middle"></span>Cluster ${c.id}<br>` +
                `<span style="margin-left:14px;color:#475569">${lbl}</span>`;

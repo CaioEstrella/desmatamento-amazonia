@@ -91,10 +91,10 @@ _CLUSTER_NAMES = {
     4: "Municípios periféricos — baixa pressão de desmatamento",
 }
 
-_CLUSTER_PALETTE = ["#e41a1c", "#377eb8", "#4daf4a", "#984ea3", "#ff7f00"]
+_RISK_COLORS = ["#22c55e", "#86efac", "#eab308", "#f97316", "#ef4444"]
+_RISK_BG     = ["#dcfce7", "#d1fae5", "#fef9c3", "#ffedd5", "#fee2e2"]
 
 _SCORE_BANDS = [(20, "#22c55e"), (40, "#86efac"), (60, "#eab308"), (80, "#f97316"), (101, "#ef4444")]
-_CLUSTER_BG  = ["#fde8e8", "#dbeafe", "#dcfce7", "#f3e8ff", "#ffedd5"]
 
 def _score_color(score) -> str:
     if score is None or (isinstance(score, float) and np.isnan(score)):
@@ -229,6 +229,18 @@ def build_cluster_profiles(_gdf: gpd.GeoDataFrame) -> list[dict]:
             "autos": float(row["autos"]),
             "trend": float(row["trend"]),
         })
+
+    # Cores baseadas em rank de risco: menor taxa → verde, maior taxa → vermelho
+    valid = sorted([r for r in result if r["id"] >= 0], key=lambda x: x["taxa"])
+    n = len(valid)
+    for rank, cluster in enumerate(valid):
+        idx = round(rank * (len(_RISK_COLORS) - 1) / max(n - 1, 1))
+        cluster["color"] = _RISK_COLORS[idx]
+        cluster["bg"]    = _RISK_BG[idx]
+    for r in result:
+        if r["id"] == -1:
+            r["color"] = "#94a3b8"
+            r["bg"]    = "#f1f5f9"
     return result
 
 
@@ -454,6 +466,8 @@ with tab_clusters:
     st.subheader("Distribuição Espacial dos Clusters — HDBSCAN")
 
     gdf_cl = load_cluster_geodata(gdf)
+    cluster_profiles = build_cluster_profiles(gdf)
+    color_map = {c["id"]: c["color"] for c in cluster_profiles}
 
     m_cl = folium.Map(location=[-6.0, -55.0], zoom_start=5, tiles="CartoDB positron")
 
@@ -462,7 +476,7 @@ with tab_clusters:
     def _cl_style(feature):
         raw = cl_lookup.get(feature["properties"]["cod_ibge"])
         cid = -1 if raw is None else int(raw)
-        color = _CLUSTER_PALETTE[cid % len(_CLUSTER_PALETTE)] if cid >= 0 else "#94a3b8"
+        color = color_map.get(cid, "#94a3b8")
         return {"fillColor": color, "color": "#94a3b8", "weight": 0.4, "fillOpacity": 0.75}
 
     folium.GeoJson(
@@ -475,24 +489,30 @@ with tab_clusters:
         ),
     ).add_to(m_cl)
 
-    _cl_legend = "<div style='position:fixed;bottom:30px;right:10px;z-index:9999;background:white;padding:10px 14px;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,.15);font-size:12px;line-height:1.8;font-family:sans-serif'><b>Clusters HDBSCAN</b><br>" + "".join([
-        f"<span style='display:inline-block;width:12px;height:12px;background:{_CLUSTER_PALETTE[cid % len(_CLUSTER_PALETTE)]};border-radius:2px;margin-right:5px;vertical-align:middle'></span>Cluster {cid}: {_CLUSTER_NAMES.get(cid,'')[:28]}...<br>"
-        for cid in sorted(_CLUSTER_NAMES.keys())
-    ]) + "</div>"
+    _cl_legend = (
+        "<div style='position:fixed;bottom:30px;right:10px;z-index:9999;background:white;"
+        "padding:10px 14px;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,.15);"
+        "font-size:12px;line-height:1.8;font-family:sans-serif'><b>Clusters HDBSCAN</b><br>"
+        + "".join([
+            f"<span style='display:inline-block;width:12px;height:12px;"
+            f"background:{c['color']};border-radius:2px;margin-right:5px;"
+            f"vertical-align:middle'></span>Cluster {c['id']}: {c['label'][:30]}{'…' if len(c['label']) > 30 else ''}<br>"
+            for c in sorted(cluster_profiles, key=lambda x: x["id"]) if c["id"] >= 0
+        ])
+        + "</div>"
+    )
     m_cl.get_root().html.add_child(folium.Element(_cl_legend))
 
     components.html(m_cl._repr_html_(), height=440, scrolling=False)
 
     st.subheader("Perfis por Cluster")
-    cluster_profiles = build_cluster_profiles(gdf)
 
     if not cluster_profiles:
         st.info("Dados de clustering não disponíveis.")
     else:
         for c in cluster_profiles:
-            cid   = c["id"]
-            color = _CLUSTER_PALETTE[cid % len(_CLUSTER_PALETTE)] if cid >= 0 else "#94a3b8"
-            bg    = _CLUSTER_BG[cid % len(_CLUSTER_BG)] if cid >= 0 else "#f1f5f9"
+            color = c["color"]
+            bg    = c["bg"]
             bar_w = min(100.0, (c["taxa"] / 0.25) * 100)
 
             stats_items = [
