@@ -537,7 +537,7 @@ with tab_clusters:
 <div style="background:{bg};border:1px solid {color}50;border-radius:8px;padding:16px;margin-bottom:12px">
   <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
     <span style="display:inline-block;width:14px;height:14px;background:{color};border-radius:3px;flex-shrink:0"></span>
-    <span style="font-weight:600;font-size:14px;color:#0f172a">Cluster {cid} — {c['label']}</span>
+    <span style="font-weight:600;font-size:14px;color:#0f172a">Cluster {c['id']} — {c['label']}</span>
   </div>
   <div style="margin-bottom:10px">
     <div style="font-size:11px;color:#64748b;margin-bottom:3px">Taxa de desmatamento média</div>
