@@ -666,44 +666,69 @@ with tab_shap:
 
 # ── Tab 6: Dicionário ─────────────────────────────────────────────────────────
 with tab_dicionario:
+    _TBL  = "width:100%;border-collapse:collapse;font-size:13px"
+    _TH   = ("background:#1e293b;color:white;padding:8px 12px;"
+             "text-align:left;font-size:12px;font-weight:600")
+    _TD   = "padding:8px 12px;border-bottom:1px solid #f1f5f9;vertical-align:top;color:#374151"
+    _TDB  = _TD + ";font-weight:600;color:#0f172a;white-space:nowrap"
+    _TDM  = _TD + ";font-family:monospace;font-size:12px;font-weight:600;color:#1e293b;white-space:nowrap"
+    _TDS  = _TD + ";color:#64748b;white-space:nowrap"
+
+    def _tbl(header_cols: list, rows_html: str) -> str:
+        ths = "".join(f"<th style='{_TH};{w}'>{h}</th>" for h, w in header_cols)
+        return (
+            f"<div style='overflow-x:auto;border:1px solid #e2e8f0;border-radius:8px;margin-bottom:4px'>"
+            f"<table style='{_TBL}'><thead><tr>{ths}</tr></thead>"
+            f"<tbody>{rows_html}</tbody></table></div>"
+        )
+
     st.subheader("Indicadores do Dashboard")
     st.caption("O que cada número no topo da página significa.")
-    _KPI_DICT = [
-        {
-            "Indicador": "Desmatamento total (km²)",
-            "Definição": (
-                "Soma da área desmatada em todos os municípios filtrados no ano selecionado. "
-                "Para 2026 é uma estimativa: taxa prevista pelo modelo × área do município "
-                "(dados INPE/PRODES ainda não disponíveis)."
-            ),
-        },
-        {
-            "Indicador": "Taxa média (%/ano)",
-            "Definição": (
-                "Média da taxa de desmatamento entre os municípios filtrados. "
-                "Taxa = área desmatada ÷ área total do município × 100. "
-                "Mede a intensidade relativa do desmatamento, independente do tamanho do município — "
-                "um município pequeno com taxa alta é tão preocupante quanto um grande com muito "
-                "desmatamento absoluto. Para 2026 usa a previsão do modelo."
-            ),
-        },
-        {
-            "Indicador": "Score de risco médio (0–100)",
-            "Definição": (
-                "Média do ranking percentílico entre os municípios filtrados. "
-                "O score é recalculado a cada ano: score 80 = o município desmatou mais do que "
-                "80% dos 808 municípios da Amazônia Legal naquele mesmo ano. "
-                "Permite comparar anos distintos mesmo que o nível absoluto de desmatamento varie."
-            ),
-        },
-    ]
-    st.dataframe(pd.DataFrame(_KPI_DICT), use_container_width=True, hide_index=True)
 
-    st.markdown("---")
+    _kpi_rows = "".join(
+        f"<tr><td style='{_TDB}'>{r['Indicador']}</td>"
+        f"<td style='{_TD}'>{r['Definição']}</td></tr>"
+        for r in [
+            {"Indicador": "Desmatamento total (km²)",
+             "Definição": "Soma da área desmatada em todos os municípios filtrados no ano selecionado. "
+                          "Para 2026 é uma estimativa: taxa prevista pelo modelo × área do município "
+                          "(dados INPE/PRODES ainda não disponíveis)."},
+            {"Indicador": "Taxa média (%/ano)",
+             "Definição": "Média da taxa de desmatamento entre os municípios filtrados. "
+                          "Taxa = área desmatada ÷ área total × 100. Mede a intensidade relativa "
+                          "do desmatamento — um município pequeno com taxa alta é tão preocupante "
+                          "quanto um grande com muito desmatamento absoluto. Para 2026 usa a previsão do modelo."},
+            {"Indicador": "Score de risco médio (0–100)",
+             "Definição": "Média do ranking percentílico entre os municípios filtrados. "
+                          "Score 80 = o município desmatou mais do que 80% dos 808 municípios da "
+                          "Amazônia Legal naquele mesmo ano. Permite comparar anos distintos mesmo "
+                          "que o nível absoluto de desmatamento varie."},
+        ]
+    )
+    st.markdown(
+        _tbl([("Indicador", "width:220px"), ("Definição", "")], _kpi_rows),
+        unsafe_allow_html=True,
+    )
+
+    st.markdown("<div style='margin-top:24px'></div>", unsafe_allow_html=True)
     st.subheader("Dicionário de Features do Modelo")
     st.caption("Descrição de todas as variáveis utilizadas no modelo e no dashboard.")
-    df_dict = pd.DataFrame(_FEATURE_DICT)
-    st.dataframe(df_dict, use_container_width=True, hide_index=True)
+
+    _feat_rows = "".join(
+        f"<tr><td style='{_TDM}'>{r['Feature']}</td>"
+        f"<td style='{_TDS}'>{r['Unidade']}</td>"
+        f"<td style='{_TD}'>{r['Descrição']}</td>"
+        f"<td style='{_TDS}'>{r['Fonte']}</td></tr>"
+        for r in _FEATURE_DICT
+    )
+    st.markdown(
+        _tbl(
+            [("Feature", "width:220px"), ("Unidade", "width:100px"),
+             ("Descrição", ""), ("Fonte", "width:130px")],
+            _feat_rows,
+        ),
+        unsafe_allow_html=True,
+    )
     st.caption(
         "* Features de lag e rolling window são construídas com dados reais INPE/PRODES para anos "
         "históricos; para 2026, usam os dados de 2025 como âncora mais recente."
