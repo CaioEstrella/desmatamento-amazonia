@@ -20,6 +20,8 @@ import json
 from pathlib import Path
 
 import folium
+from branca.element import MacroElement
+from jinja2 import Template
 import geopandas as gpd
 import numpy as np
 import pandas as pd
@@ -422,17 +424,29 @@ with tab_mapa:
             ),
         ).add_to(m)
 
-        _legend_html = """
-<div style="position:fixed;bottom:30px;right:10px;z-index:9999;background:white;padding:10px 14px;
-     border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,.15);font-size:12px;line-height:1.8;font-family:sans-serif">
-  <b style="font-size:13px">Score de Risco</b><br>
-  <span style="display:inline-block;width:12px;height:12px;background:#22c55e;border-radius:2px;margin-right:5px;vertical-align:middle"></span>0–20<br>
-  <span style="display:inline-block;width:12px;height:12px;background:#86efac;border-radius:2px;margin-right:5px;vertical-align:middle"></span>21–40<br>
-  <span style="display:inline-block;width:12px;height:12px;background:#eab308;border-radius:2px;margin-right:5px;vertical-align:middle"></span>41–60<br>
-  <span style="display:inline-block;width:12px;height:12px;background:#f97316;border-radius:2px;margin-right:5px;vertical-align:middle"></span>61–80<br>
-  <span style="display:inline-block;width:12px;height:12px;background:#ef4444;border-radius:2px;margin-right:5px;vertical-align:middle"></span>81–100<br>
-</div>"""
-        m.get_root().html.add_child(folium.Element(_legend_html))
+        _legend = MacroElement()
+        _legend._template = Template("""
+{% macro script(this, kwargs) %}
+(function() {
+  var legend = L.control({position: 'bottomright'});
+  legend.onAdd = function() {
+    var div = L.DomUtil.create('div');
+    div.style.cssText = 'background:white;padding:10px 14px;border-radius:8px;'
+      + 'box-shadow:0 2px 8px rgba(0,0,0,.15);font-size:12px;line-height:1.9;font-family:sans-serif';
+    div.innerHTML =
+      '<b style="font-size:13px">Score de Risco</b><br>'
+      + '<span style="display:inline-block;width:12px;height:12px;background:#22c55e;border-radius:2px;margin-right:5px;vertical-align:middle"></span>0–20<br>'
+      + '<span style="display:inline-block;width:12px;height:12px;background:#86efac;border-radius:2px;margin-right:5px;vertical-align:middle"></span>21–40<br>'
+      + '<span style="display:inline-block;width:12px;height:12px;background:#eab308;border-radius:2px;margin-right:5px;vertical-align:middle"></span>41–60<br>'
+      + '<span style="display:inline-block;width:12px;height:12px;background:#f97316;border-radius:2px;margin-right:5px;vertical-align:middle"></span>61–80<br>'
+      + '<span style="display:inline-block;width:12px;height:12px;background:#ef4444;border-radius:2px;margin-right:5px;vertical-align:middle"></span>81–100';
+    return div;
+  };
+  legend.addTo({{ this._parent.get_name() }});
+})();
+{% endmacro %}
+""")
+        _legend.add_to(m)
 
         components.html(m._repr_html_(), height=520, scrolling=False)
 
