@@ -91,8 +91,8 @@ _CLUSTER_NAMES = {
     4: "Municípios periféricos — baixa pressão de desmatamento",
 }
 
-_RISK_COLORS = ["#22c55e", "#86efac", "#eab308", "#f97316", "#ef4444"]
-_RISK_BG     = ["#dcfce7", "#d1fae5", "#fef9c3", "#ffedd5", "#fee2e2"]
+_RISK_COLORS = ["#22c55e", "#eab308", "#f97316", "#a855f7", "#ef4444"]
+_RISK_BG     = ["#dcfce7", "#fef9c3", "#ffedd5", "#f3e8ff", "#fee2e2"]
 
 _SCORE_BANDS = [(20, "#22c55e"), (40, "#86efac"), (60, "#eab308"), (80, "#f97316"), (101, "#ef4444")]
 
@@ -496,8 +496,8 @@ with tab_clusters:
         + "".join([
             f"<span style='display:inline-block;width:12px;height:12px;"
             f"background:{c['color']};border-radius:2px;margin-right:5px;"
-            f"vertical-align:middle'></span>Cluster {c['id']}: {c['label'][:30]}{'…' if len(c['label']) > 30 else ''}<br>"
-            for c in sorted(cluster_profiles, key=lambda x: x["id"]) if c["id"] >= 0
+            f"vertical-align:middle'></span>{c['label'][:30]}{'…' if len(c['label']) > 30 else ''}<br>"
+            for c in sorted(cluster_profiles, key=lambda x: x.get("taxa", 0)) if c["id"] >= 0
         ])
         + "</div>"
     )
@@ -510,7 +510,7 @@ with tab_clusters:
     if not cluster_profiles:
         st.info("Dados de clustering não disponíveis.")
     else:
-        for c in cluster_profiles:
+        for c in sorted(cluster_profiles, key=lambda x: (x["id"] == -1, x.get("taxa", 0))):
             color = c["color"]
             bg    = c["bg"]
             bar_w = min(100.0, (c["taxa"] / 0.25) * 100)
@@ -537,7 +537,7 @@ with tab_clusters:
 <div style="background:{bg};border:1px solid {color}50;border-radius:8px;padding:16px;margin-bottom:12px">
   <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
     <span style="display:inline-block;width:14px;height:14px;background:{color};border-radius:3px;flex-shrink:0"></span>
-    <span style="font-weight:600;font-size:14px;color:#0f172a">Cluster {c['id']} — {c['label']}</span>
+    <span style="font-weight:600;font-size:14px;color:#0f172a">{c['label']}</span>
   </div>
   <div style="margin-bottom:10px">
     <div style="font-size:11px;color:#64748b;margin-bottom:3px">Taxa de desmatamento média</div>

@@ -120,8 +120,8 @@ def _cluster_label_html(row) -> str:
     return "Perfil intermediário de expansão agrícola"
 
 
-_RISK_COLORS = ["#22c55e", "#86efac", "#eab308", "#f97316", "#ef4444"]
-_RISK_BG     = ["#dcfce7", "#d1fae5", "#fef9c3", "#ffedd5", "#fee2e2"]
+_RISK_COLORS = ["#22c55e", "#eab308", "#f97316", "#a855f7", "#ef4444"]
+_RISK_BG     = ["#dcfce7", "#fef9c3", "#ffedd5", "#f3e8ff", "#fee2e2"]
 
 
 def _build_clusters(gdf: gpd.GeoDataFrame) -> list:
@@ -1051,11 +1051,14 @@ function renderClusters() {
     statsEl.textContent = `${n} clusters · ${noiseN > 0 ? noiseN + ' municípios ruído' : 'sem ruído'}`;
   }
 
-  container.innerHTML = CLUSTERS.map(c => {
+  const sortedClusters = [...CLUSTERS].sort((a, b) =>
+    a.id === -1 ? 1 : b.id === -1 ? -1 : a.taxa - b.taxa
+  );
+  container.innerHTML = sortedClusters.map(c => {
     const isNoise = c.id === -1;
     const color   = clusterColorMap[c.id] ?? '#94a3b8';
     const bg      = clusterBgMap[c.id]    ?? '#f1f5f9';
-    const title   = isNoise ? 'Ruído (−1) — sem cluster' : `Cluster ${c.id} — ${c.label}`;
+    const title   = isNoise ? 'Ruído — sem cluster' : c.label;
 
     const stats = [
       { label: 'Municípios',           value: c.n.toLocaleString('pt-BR') },
@@ -1126,7 +1129,7 @@ function buildClusterMap() {
       const cid = clusterLookup[p.cod_ibge] ?? -1;
       layer.bindTooltip(
         `<div style="font-size:12px"><b>${p.municipio}</b> (${p.uf})<br>` +
-        `${cid === -1 ? 'Não classificado' : 'Cluster ' + cid}</div>`
+        `${cid === -1 ? 'Não classificado' : (CLUSTERS.find(c => c.id === cid)?.label ?? 'Cluster ' + cid)}</div>`
       );
     },
   }).addTo(clusterLeafletMap);
@@ -1136,12 +1139,14 @@ function buildClusterMap() {
   legendCtrl.onAdd = () => {
     const div = L.DomUtil.create('div', 'leaflet-bar');
     div.style.cssText = 'background:white;padding:8px 12px;font-size:11px;line-height:1.7;border-radius:6px;max-width:240px';
+    const legendClusters = [...CLUSTERS].sort((a, b) =>
+      a.id === -1 ? 1 : b.id === -1 ? -1 : a.taxa - b.taxa
+    );
     div.innerHTML = '<b style="font-size:12px">Clusters HDBSCAN</b><br>' +
-      CLUSTERS.map(c => {
+      legendClusters.map(c => {
         const color = clusterColorMap[c.id] ?? '#94a3b8';
-        const lbl   = c.label.length > 32 ? c.label.slice(0, 30) + '…' : c.label;
-        return `<span style="display:inline-block;width:10px;height:10px;background:${color};border-radius:2px;margin-right:4px;vertical-align:middle"></span>Cluster ${c.id}<br>` +
-               `<span style="margin-left:14px;color:#475569">${lbl}</span>`;
+        const lbl   = c.id === -1 ? 'Ruído' : (c.label.length > 32 ? c.label.slice(0, 30) + '…' : c.label);
+        return `<span style="display:inline-block;width:10px;height:10px;background:${color};border-radius:2px;margin-right:4px;vertical-align:middle"></span>${lbl}`;
       }).join('<br>');
     return div;
   };
