@@ -575,14 +575,14 @@ tr:nth-child(even) td { background-color: var(--row-even) !important; }
         <div class="kpi-sub">%/ano (municípios filtrados)</div>
       </div>
       <div class="kpi-card">
-        <div class="kpi-label">Score Médio de Risco</div>
+        <div class="kpi-label">Taxa Máxima</div>
         <div class="kpi-value" id="kpi-score" style="color:#f97316">—</div>
-        <div class="kpi-sub">0–100 (percentílico)</div>
+        <div class="kpi-sub">%/ano · município mais crítico</div>
       </div>
       <div class="kpi-card">
-        <div class="kpi-label">Municípios Score ≥ 80</div>
+        <div class="kpi-label">Municípios Taxa > 0,2%</div>
         <div class="kpi-value" id="kpi-high" style="color:#ef4444">—</div>
-        <div class="kpi-sub">alto risco crítico</div>
+        <div class="kpi-sub">acima do limiar de alerta</div>
       </div>
     </div>
 
@@ -900,9 +900,9 @@ function updateKPIs() {
   const isPrevisao = rows.length > 0 && rows[0].ano_tipo === 'previsão';
   const desmat = rows.reduce((s, r) => s + (r.desmatamento_km2 || 0), 0);
   const taxa   = rows.length ? rows.reduce((s, r) => s + taxaEfetiva(r), 0) / rows.length : 0;
-  const scores = rows.map(r => r.score_risco).filter(s => s != null);
-  const scoreMed = scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : null;
-  const high = scores.filter(s => s >= 80).length;
+  const taxas    = rows.map(r => taxaEfetiva(r)).filter(v => v != null && !isNaN(v));
+  const taxaMax  = taxas.length ? Math.max(...taxas) : null;
+  const highTaxa = taxas.filter(v => v > 0.2).length;
 
   // Desmatamento total: real para histórico, estimado para previsão
   let desmatVal, desmatLabel;
@@ -917,8 +917,8 @@ function updateKPIs() {
   document.getElementById('kpi-desmat-label').textContent = desmatLabel;
   document.getElementById('kpi-desmat').textContent = desmatVal;
   document.getElementById('kpi-taxa').textContent   = taxa.toFixed(4) + ' %' + (isPrevisao ? ' (prev.)' : '');
-  document.getElementById('kpi-score').textContent  = scoreMed != null ? scoreMed.toFixed(1) : '—';
-  document.getElementById('kpi-high').textContent   = high.toLocaleString('pt-BR');
+  document.getElementById('kpi-score').textContent  = taxaMax != null ? taxaMax.toFixed(4) + ' %' + (isPrevisao ? ' (est.)' : '') : '—';
+  document.getElementById('kpi-high').textContent   = highTaxa.toLocaleString('pt-BR');
   const anoLabel = isPrevisao ? `${state.ano} (previsão)` : String(state.ano);
   document.getElementById('header-sub').textContent = `Ano: ${anoLabel} · ${rows.length} municípios filtrados`;
 }
