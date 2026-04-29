@@ -37,6 +37,9 @@ data/outputs/
 *.swp
 *.swo
 
+# Claude Code (configurações locais)
+.claude/settings.local.json
+
 # OS
 .DS_Store
 Thumbs.db
