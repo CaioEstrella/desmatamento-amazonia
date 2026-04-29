@@ -120,8 +120,8 @@ def _cluster_label_html(row) -> str:
     return "Perfil intermediário de expansão agrícola"
 
 
-_RISK_COLORS = ["#22c55e", "#eab308", "#f97316", "#a855f7", "#ef4444"]
-_RISK_BG     = ["#dcfce7", "#fef9c3", "#ffedd5", "#f3e8ff", "#fee2e2"]
+_RISK_COLORS = ["#22c55e", "#86efac", "#eab308", "#f97316", "#ef4444"]
+_RISK_BG     = ["#dcfce7", "#d1fae5", "#fef9c3", "#ffedd5", "#fee2e2"]
 
 
 def _build_clusters(gdf: gpd.GeoDataFrame) -> list:

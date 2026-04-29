@@ -91,8 +91,8 @@ _CLUSTER_NAMES = {
     4: "Municípios periféricos — baixa pressão de desmatamento",
 }
 
-_RISK_COLORS = ["#22c55e", "#eab308", "#f97316", "#a855f7", "#ef4444"]
-_RISK_BG     = ["#dcfce7", "#fef9c3", "#ffedd5", "#f3e8ff", "#fee2e2"]
+_RISK_COLORS = ["#22c55e", "#86efac", "#eab308", "#f97316", "#ef4444"]
+_RISK_BG     = ["#dcfce7", "#d1fae5", "#fef9c3", "#ffedd5", "#fee2e2"]
 
 _SCORE_BANDS = [(20, "#22c55e"), (40, "#86efac"), (60, "#eab308"), (80, "#f97316"), (101, "#ef4444")]
 
