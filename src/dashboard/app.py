@@ -176,11 +176,20 @@ def build_cluster_profiles(_gdf: gpd.GeoDataFrame) -> list[dict]:
     trend_map = (recente / (historico + 1e-6)).clip(0, 10)
     agg["trend"] = agg["cod_ibge"].map(trend_map).fillna(1.0)
 
+    # Score médio do modelo por município (usa todo o gdf, não só histórico)
+    score_map = (
+        _gdf[_gdf["score_risco"].notna()]
+        .groupby("cod_ibge")["score_risco"]
+        .mean()
+    )
+    agg["score"] = agg["cod_ibge"].map(score_map).fillna(0.0)
+
     profiles = (
         agg.groupby("cluster_id")
         .agg(
             n=("cod_ibge", "count"),
             taxa=("taxa", "mean"),
+            score=("score", "mean"),
             area=("area", "mean"),
             pop=("pop", "mean"),
             pib=("pib", "mean"),
@@ -221,6 +230,7 @@ def build_cluster_profiles(_gdf: gpd.GeoDataFrame) -> list[dict]:
             "label": _label(row),
             "n":     int(row["n"]),
             "taxa":  float(row["taxa"]),
+            "score": round(float(row["score"]), 1),
             "area":  float(row["area"]) / 1000,
             "pop":   float(row["pop"]) / 1000,
             "pib":   float(row["pib"]) / 1000,
@@ -230,18 +240,27 @@ def build_cluster_profiles(_gdf: gpd.GeoDataFrame) -> list[dict]:
             "trend": float(row["trend"]),
         })
 
-    # Cores baseadas em rank de risco: menor taxa → verde, maior taxa → vermelho
-    valid = sorted([r for r in result if r["id"] >= 0], key=lambda x: x["taxa"])
+    # Retorna sem cores — cores aplicadas fora do cache em _apply_risk_colors()
+    return result
+
+
+def _apply_risk_colors(profiles: list[dict]) -> list[dict]:
+    """Atribui cores verde→amarelo→laranja→roxo→vermelho por rank de score_risco.
+
+    Separado do cache para que mudanças em _RISK_COLORS sejam sempre refletidas.
+    """
+    profiles = [dict(r) for r in profiles]  # cópia rasa — não modifica o objeto cacheado
+    valid = sorted([r for r in profiles if r["id"] >= 0], key=lambda x: x["score"])
     n = len(valid)
     for rank, cluster in enumerate(valid):
         idx = round(rank * (len(_RISK_COLORS) - 1) / max(n - 1, 1))
         cluster["color"] = _RISK_COLORS[idx]
         cluster["bg"]    = _RISK_BG[idx]
-    for r in result:
+    for r in profiles:
         if r["id"] == -1:
             r["color"] = "#94a3b8"
             r["bg"]    = "#f1f5f9"
-    return result
+    return profiles
 
 
 @st.cache_data(show_spinner=False)
@@ -466,7 +485,7 @@ with tab_clusters:
     st.subheader("Distribuição Espacial dos Clusters — HDBSCAN")
 
     gdf_cl = load_cluster_geodata(gdf)
-    cluster_profiles = build_cluster_profiles(gdf)
+    cluster_profiles = _apply_risk_colors(build_cluster_profiles(gdf))
     color_map = {c["id"]: c["color"] for c in cluster_profiles}
 
     m_cl = folium.Map(location=[-6.0, -55.0], zoom_start=5, tiles="CartoDB positron")
@@ -497,7 +516,7 @@ with tab_clusters:
             f"<span style='display:inline-block;width:12px;height:12px;"
             f"background:{c['color']};border-radius:2px;margin-right:5px;"
             f"vertical-align:middle'></span>{c['label'][:30]}{'…' if len(c['label']) > 30 else ''}<br>"
-            for c in sorted(cluster_profiles, key=lambda x: x.get("taxa", 0)) if c["id"] >= 0
+            for c in sorted(cluster_profiles, key=lambda x: x.get("score", 0)) if c["id"] >= 0
         ])
         + "</div>"
     )
@@ -510,7 +529,7 @@ with tab_clusters:
     if not cluster_profiles:
         st.info("Dados de clustering não disponíveis.")
     else:
-        for c in sorted(cluster_profiles, key=lambda x: (x["id"] == -1, x.get("taxa", 0))):
+        for c in sorted(cluster_profiles, key=lambda x: (x["id"] == -1, x.get("score", 0))):
             color = c["color"]
             bg    = c["bg"]
             bar_w = min(100.0, (c["taxa"] / 0.25) * 100)

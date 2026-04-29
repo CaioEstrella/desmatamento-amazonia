@@ -152,11 +152,20 @@ def _build_clusters(gdf: gpd.GeoDataFrame) -> list:
     trend_map = (recente / (historico + 1e-6)).clip(0, 10)
     agg["trend"] = agg["cod_ibge"].map(trend_map).fillna(1.0)
 
+    # Score médio do modelo por município (usa todo o gdf, não só histórico)
+    score_map = (
+        gdf[gdf["score_risco"].notna()]
+        .groupby("cod_ibge")["score_risco"]
+        .mean()
+    )
+    agg["score"] = agg["cod_ibge"].map(score_map).fillna(0.0)
+
     profiles = (
         agg.groupby("cluster_id")
         .agg(
             n=("cod_ibge", "count"),
             taxa=("taxa", "mean"),
+            score=("score", "mean"),
             area=("area", "mean"),
             pop=("pop", "mean"),
             pib=("pib", "mean"),
@@ -176,6 +185,7 @@ def _build_clusters(gdf: gpd.GeoDataFrame) -> list:
             "label": _cluster_label_html(row),
             "n":     int(row["n"]),
             "taxa":  round(float(row["taxa"]), 4),
+            "score": round(float(row["score"]), 1),
             "area":  round(float(row["area"]) / 1000, 1),
             "pop":   round(float(row["pop"]) / 1000, 1),
             "pib":   round(float(row["pib"]) / 1000, 1),
@@ -184,8 +194,8 @@ def _build_clusters(gdf: gpd.GeoDataFrame) -> list:
             "autos": round(float(row["autos"]), 0),
         })
 
-    # Cores baseadas em rank de risco: menor taxa → verde, maior taxa → vermelho
-    valid = sorted([r for r in result if r["id"] >= 0], key=lambda x: x["taxa"])
+    # Cores baseadas em rank de score_risco: menor score → verde, maior score → vermelho
+    valid = sorted([r for r in result if r["id"] >= 0], key=lambda x: x["score"])
     n = len(valid)
     for rank, cluster in enumerate(valid):
         idx = round(rank * (len(_RISK_COLORS) - 1) / max(n - 1, 1))
@@ -1052,7 +1062,7 @@ function renderClusters() {
   }
 
   const sortedClusters = [...CLUSTERS].sort((a, b) =>
-    a.id === -1 ? 1 : b.id === -1 ? -1 : a.taxa - b.taxa
+    a.id === -1 ? 1 : b.id === -1 ? -1 : a.score - b.score
   );
   container.innerHTML = sortedClusters.map(c => {
     const isNoise = c.id === -1;
@@ -1140,7 +1150,7 @@ function buildClusterMap() {
     const div = L.DomUtil.create('div', 'leaflet-bar');
     div.style.cssText = 'background:white;padding:8px 12px;font-size:11px;line-height:1.7;border-radius:6px;max-width:240px';
     const legendClusters = [...CLUSTERS].sort((a, b) =>
-      a.id === -1 ? 1 : b.id === -1 ? -1 : a.taxa - b.taxa
+      a.id === -1 ? 1 : b.id === -1 ? -1 : a.score - b.score
     );
     div.innerHTML = '<b style="font-size:12px">Clusters HDBSCAN</b><br>' +
       legendClusters.map(c => {
