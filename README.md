@@ -1,12 +1,31 @@
-# 🌿 Preditor de Risco de Desmatamento — Amazônia Legal
+# Preditor de Risco de Desmatamento — Amazônia Legal
 
 Pipeline de análise de dados e machine learning para predição de risco de desmatamento em municípios da Amazônia Legal brasileira, utilizando exclusivamente dados públicos governamentais via **mcp-brasil**.
 
 ---
 
+## Dashboard interativo
+
+**Acesse ao vivo, sem instalar nada:**
+
+> ### [caioestrella.github.io/desmatamento-amazonia](https://caioestrella.github.io/desmatamento-amazonia/)
+
+O dashboard é um arquivo HTML único, hospedado no GitHub Pages. Abre diretamente no navegador.
+
+**O que você encontra:**
+- **Mapa coroplético** interativo — score de risco 0–100 por município, filtrável por ano e estado
+- **Ranking** — top-20 municípios de maior risco
+- **Clusters HDBSCAN** — perfis estruturais dos municípios com mapa e cards descritivos
+- **Série temporal** — evolução do desmatamento por estado (2008–2026)
+- **SHAP** — importância global das features e waterfall dos municípios mais críticos
+- **Dicionário** — definição de cada indicador e feature do modelo
+- Suporte a **tema claro/escuro**
+
+---
+
 ## Visão geral
 
-O projeto atribui um **score de risco de desmatamento (0–100)** para cada um dos municípios da Amazônia Legal, combinando séries históricas do INPE/PRODES com dados socioeconômicos do IBGE, unidades de conservação do ICMBio e autos de infração do IBAMA. O modelo é explicável via SHAP e os resultados são apresentados em um dashboard interativo com mapa de calor por município.
+O projeto atribui um **score de risco de desmatamento (0–100)** para cada um dos municípios da Amazônia Legal, combinando séries históricas do INPE/PRODES com dados socioeconômicos do IBGE, unidades de conservação do ICMBio e autos de infração do IBAMA. O modelo é explicável via SHAP e os resultados são apresentados em dashboard interativo com mapa de calor por município.
 
 ```
 Dados públicos (mcp-brasil)
@@ -24,7 +43,19 @@ Dados públicos (mcp-brasil)
     Score 0–100 por município
     + explicabilidade SHAP
           ↓
-    Dashboard Streamlit · Relatório HTML · Slide deck
+    Dashboard HTML · Slide deck executivo
+```
+
+---
+
+## Arquitetura do Pipeline
+
+![Arquitetura do Pipeline](reports/arquitetura.png)
+
+Para regenerar o diagrama:
+
+```bash
+python src/reports/build_arquitetura.py
 ```
 
 ---
@@ -40,13 +71,14 @@ Dados públicos (mcp-brasil)
 | Modelagem | `lightgbm`, `optuna` |
 | Validação | `spatial-kfold` |
 | Explicabilidade | `shap` |
-| Visualização | `streamlit`, `folium`, `plotly` |
+| Visualização | `folium`, `plotly`, `Chart.js`, `Leaflet.js` |
+| Dashboard | HTML single-file · GitHub Pages |
 
 ---
 
 ## Fontes de dados
 
-Todos os dados são obtidos via **[mcp-brasil](https://github.com/Mcp-Brasil/mcp-brasil)**, um MCP server open-source que conecta agentes de IA a APIs públicas brasileiras. Nenhum dado é coletado manualmente ou via scraping.
+Todos os dados são obtidos via **[mcp-brasil](https://github.com/Mcp-Brasil/mcp-brasil)**, um MCP server open-source que conecta agentes de IA a APIs públicas brasileiras.
 
 | Fonte | Dados utilizados |
 |---|---|
@@ -62,53 +94,33 @@ Todos os dados são obtidos via **[mcp-brasil](https://github.com/Mcp-Brasil/mcp
 ```
 desmatamento-amazonia/
 ├── CLAUDE.md               # Instruções para o Claude Code
+├── index.html              # Redirect para o dashboard (GitHub Pages)
 ├── specs/
-│   ├── requirements.md     # Requisitos funcionais e não funcionais
-│   ├── design.md           # Arquitetura e design técnico
-│   └── tasks.md            # Tarefas atômicas com dependências
+│   ├── requirements.md
+│   ├── design.md
+│   └── tasks.md
 ├── data/
-│   ├── raw/                # Dados brutos coletados via mcp-brasil
-│   ├── processed/          # Dataset consolidado municipio×ano
-│   └── outputs/            # Predições, estudo Optuna, métricas
-├── notebooks/              # EDA e experimentos exploratórios
+│   ├── raw/                # Dados brutos via mcp-brasil (gitignore)
+│   ├── processed/          # Dataset consolidado municipio×ano (gitignore)
+│   └── outputs/            # Predições, métricas, SHAP (gitignore)
+├── notebooks/              # EDA exploratória
 ├── src/
 │   ├── ingestion/          # Coleta de dados via mcp-brasil
 │   ├── features/           # ETL, lag features, Moran's I
 │   ├── clustering/         # HDBSCAN e perfis de municípios
 │   ├── model/              # LightGBM, Optuna, SHAP
-│   └── dashboard/          # Streamlit e outputs visuais
-├── reports/                # Dashboard HTML, slide deck e diagrama de arquitetura
-└── requirements.txt
+│   ├── dashboard/          # build_html.py — gerador do dashboard
+│   └── reports/            # build_pptx.py, build_arquitetura.py
+└── reports/
+    ├── dashboard.html          # Dashboard interativo (publicado no GitHub Pages)
+    ├── arquitetura.png         # Diagrama do pipeline
+    ├── clusters_description.md # Perfis textuais dos clusters HDBSCAN
+    └── slide_deck_executivo.pptx
 ```
 
 ---
 
-## Pipeline detalhado
-
-### 1. Ingestão
-Scripts em `src/ingestion/` fazem chamadas ao mcp-brasil para coletar e persistir os dados brutos em `data/raw/` no formato `.parquet`. Inclui retry logic e cache local para evitar chamadas repetidas.
-
-### 2. ETL e limpeza
-Consolidação das quatro fontes em um único DataFrame `município × ano`, filtrado para os 9 estados da Amazônia Legal (AM, PA, MT, RO, AC, AP, RR, TO e parte do MA). Tratamento de missing values e normalização de nomes de municípios via geopandas.
-
-### 3. Feature engineering
-- **Lag features**: taxa de desmatamento no ano anterior, há 2 e há 3 anos
-- **Rolling window**: média móvel e desvio padrão dos últimos 3 e 5 anos
-- **Local Moran's I** (via `libpysal` + `esda`): autocorrelação espacial do desmatamento por município — captura o efeito de vizinhança
-- **Features categóricas**: presença de UC, proximidade de rodovias federais, bioma dominante, cluster HDBSCAN
-
-### 4. Clusterização (HDBSCAN)
-Identificação de perfis de municípios usando features ambientais e socioeconômicas (sem lag, para não vazar informação temporal). Perfis esperados: expansão de fronteira agrícola, pressão sobre unidades de conservação, baixo risco estrutural, desmatamento residual. Validação com silhouette score.
-
-### 5. Modelagem (LightGBM + Optuna)
-Tunagem de hiperparâmetros com Optuna (50+ trials), onde a **função objetivo usa a média do RMSE nos folds de spatial cross-validation** — nunca split aleatório. O estudo Optuna é salvo em `data/outputs/optuna_study.pkl` para reproductibilidade. O modelo final é treinado com os melhores hiperparâmetros e avaliado com métricas por fold espacial (RMSE, MAE, R²).
-
-### 6. Score e explicabilidade
-O output do modelo é normalizado para a escala 0–100 por percentil. SHAP fornece importância global das features e waterfall plots para municípios individuais — incluindo breakdown por cluster.
-
----
-
-## Como executar
+## Como executar o pipeline
 
 ### Pré-requisitos
 
@@ -118,7 +130,7 @@ O output do modelo é normalizado para a escala 0–100 por percentil. SHAP forn
 ### Instalação
 
 ```bash
-git clone https://github.com/seu-usuario/desmatamento-amazonia.git
+git clone https://github.com/CaioEstrella/desmatamento-amazonia.git
 cd desmatamento-amazonia
 pip install -r requirements.txt
 ```
@@ -159,72 +171,30 @@ python src/clustering/hdbscan_profiles.py
 
 # Modelagem (tunagem + treino final)
 python src/model/tune.py      # Optuna — pode levar alguns minutos
-python src/model/train.py     # Treino final com best_params.json
-python src/model/explain.py   # SHAP
+python src/model/train.py
+python src/model/evaluate.py  # SHAP
 
-# Dashboard
-streamlit run src/dashboard/app.py
+# Gerar dashboard HTML
+python -m src.dashboard.build_html
 ```
 
----
-
-## Outputs e Visualizações
-
-### Arquitetura do Pipeline
-
-![Arquitetura do Pipeline](reports/arquitetura.png)
-
-O diagrama acima mostra o fluxo completo do projeto, desde as fontes públicas até os outputs finais. Para regenerar:
+### Outputs adicionais
 
 ```bash
+# Slide deck executivo (PowerPoint)
+python -m src.reports.build_pptx
+
+# Diagrama de arquitetura
 python src/reports/build_arquitetura.py
 ```
 
 ---
 
-### Dashboards
+## Slide Deck Executivo
 
-O projeto oferece dois dashboards complementares:
+Apresentação PowerPoint com 10 slides widescreen (16:9) cobrindo contexto, metodologia, resultados do modelo, mapa de risco e recomendações. Gerada automaticamente a partir dos dados de predição.
 
-#### Dashboard HTML — `reports/dashboard.html`
-
-Dashboard **single-file, sem dependências**, pronto para distribuição. Abre diretamente no navegador sem precisar de servidor Python.
-
-- **Mapa coroplético** interativo (Leaflet.js) com score de risco 0–100 por município
-- **Ranking** dos 20 municípios de maior risco, filtrável por ano e UF
-- **Aba de Clusters** — distribuição espacial dos perfis HDBSCAN com cards descritivos
-- **Série temporal** — evolução do desmatamento por estado (2008–2026)
-- **SHAP** — beeswarm global, importância por cluster e waterfall dos top-5 municípios
-- Suporte a **tema claro/escuro**
-- Filtros por **ano** e **estado (UF)**
-
-Para regenerar após novo ciclo de predições:
-
-```bash
-python -m src.dashboard.build_html
-```
-
-#### Dashboard Streamlit — `src/dashboard/app.py`
-
-Dashboard **interativo com servidor**, com filtros adicionais por cluster HDBSCAN e visualizações Plotly/Folium.
-
-```bash
-streamlit run src/dashboard/app.py
-```
-
-Requer Python e dependências instaladas. Acessa automaticamente `data/outputs/predictions.parquet`.
-
----
-
-### Slide Deck Executivo — `reports/slide_deck_executivo.pptx`
-
-Apresentação PowerPoint com 10 slides widescreen (16:9) cobrindo contexto, metodologia, resultados do modelo, mapa de risco e recomendações. Gerado automaticamente a partir dos dados de predição.
-
-Para regenerar:
-
-```bash
-python -m src.reports.build_pptx
-```
+Arquivo: `reports/slide_deck_executivo.pptx`
 
 ---
 
@@ -232,7 +202,7 @@ python -m src.reports.build_pptx
 
 Dados geoespaciais violam a suposição de independência entre observações — municípios vizinhos têm desmatamento correlacionado. Um split aleatório tradicional colocaria municípios vizinhos simultaneamente no treino e no teste, inflando artificialmente as métricas. Este projeto usa `spatial-kfold` com UF como grupo, garantindo que cada fold de validação contenha estados geograficamente separados do conjunto de treino.
 
-O mesmo princípio se aplica à tunagem: a **função objetivo do Optuna usa a média do RMSE nos folds espaciais**, não um split aleatório. Isso garante que os hiperparâmetros selecionados generalizam geograficamente, não apenas estatisticamente.
+O mesmo princípio se aplica à tunagem: a **função objetivo do Optuna usa a média do RMSE nos folds espaciais**, não um split aleatório.
 
 ---
 
