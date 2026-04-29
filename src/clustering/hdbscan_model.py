@@ -10,17 +10,28 @@ Features de clustering (média histórica por município):
     populacao          — população estimada
     pib_agropecuario   — PIB agropecuário (R$ 1.000)
     taxa_desmatamento  — taxa média histórica (target)
-    area_uc_pct        — % coberta por UC
-    area_ti_pct        — % coberta por TI
-    autos_ibama        — total de autos de infração
+    area_uc_pct        — % coberta por Unidades de Conservação
+    area_ti_pct        — % coberta por Terras Indígenas
+    autos_ibama        — total histórico de autos de infração
+    local_moran_i      — autocorrelação espacial local do desmatamento
+    desmat_trend       — razão desmatamento recente / histórico (aceleração)
 
 Pré-processamento:
-    - Log(1+x) nas variáveis de magnitude (area_km2, populacao, pib, autos)
-    - StandardScaler para normalização antes do HDBSCAN
+    - Log(1+x) nas variáveis de magnitude (area, pop, pib, autos, taxa)
+    - local_moran_i: deslocado para domínio positivo antes do log1p
+      (preserva autocorrelação negativa, que indica municípios cercados por
+      municípios com baixo desmatamento — informação relevante)
+    - QuantileTransformer(uniform): equaliza distribuições antes do HDBSCAN
+
+Estratégia de ruído:
+    1. HDBSCAN com min_samples=3 (limiar baixo → menos ruído)
+    2. Post-assignment via all_points_membership_vectors: municípios que
+       continuam como ruído são atribuídos ao cluster com maior afinidade
+       de densidade (soft clustering). Isso é preferível a simplesmente
+       ignorar esses pontos, pois todo município tem um perfil válido.
 
 Output:
     data/processed/dataset.parquet → com coluna cluster_id adicionada
-    reports/clusters_mapa.html     → mapa Folium com cores por cluster
     reports/clusters_description.md → interpretação textual dos clusters
 """
 
@@ -52,16 +63,17 @@ _CLUSTERING_FEATURES = [
     "local_moran_i",
 ]
 
-# Parâmetros HDBSCAN calibrados para os 772 municípios da Amazônia Legal.
+# Parâmetros HDBSCAN calibrados para os ~808 municípios da Amazônia Legal.
 # - min_cluster_size=20: clusters mínimos de 20 municípios (relevância geográfica)
-# - min_samples=5: sensibilidade ao ruído
-# - QuantileTransformer como pré-processamento: resolve assimetria extrema das features
-#   resultando em 4 clusters semânticos com ~12% de ruído
+# - min_samples=3: limiar baixo → mais pontos são núcleos de densidade → menos ruído
+#   (min_samples=5 gerava ~75 municípios de ruído; 3 reduz para ~20-30)
+# - prediction_data=True: necessário para all_points_membership_vectors (post-assignment)
 _HDBSCAN_PARAMS = {
     "min_cluster_size": 20,
-    "min_samples": 5,
+    "min_samples": 3,
     "metric": "euclidean",
     "cluster_selection_method": "eom",
+    "prediction_data": True,
 }
 
 
@@ -76,13 +88,15 @@ def _aggregate_by_municipality(gdf: gpd.GeoDataFrame) -> pd.DataFrame:
         .agg(agg_funcs)
         .reset_index()
     )
-    # Total histórico de autos (mais informativo que a média por ano)
-    df_mun["autos_ibama"] = (
-        gdf.groupby("cod_ibge")["autos_ibama"].sum().values
-    )
+    # Total histórico de autos é mais informativo que a média por ano.
+    # Usa map() em vez de .values para garantir alinhamento por cod_ibge,
+    # independentemente da ordem retornada pelo groupby.
+    autos_total = gdf.groupby("cod_ibge")["autos_ibama"].sum()
+    df_mun["autos_ibama"] = df_mun["cod_ibge"].map(autos_total)
 
     # Feature de tendência: razão entre desmatamento recente (2020-2025)
     # e histórico (até 2015). Captura municípios em aceleração ou queda.
+    # Alinhamento via index cod_ibge garante correspondência correta.
     recente = gdf[gdf["ano"] >= 2020].groupby("cod_ibge")["taxa_desmatamento"].mean()
     historico = gdf[gdf["ano"] <= 2015].groupby("cod_ibge")["taxa_desmatamento"].mean()
     df_mun = df_mun.set_index("cod_ibge")
@@ -103,14 +117,25 @@ def _preprocess_features(df_mun: pd.DataFrame) -> np.ndarray:
     para resolver a assimetria extrema da distribuição. O QuantileTransformer
     mapeia cada feature para uma distribuição uniforme, equilibrando o peso
     de cada variável mesmo com escalas muito diferentes.
+
+    local_moran_i pode ser negativo (autocorrelação negativa — município
+    cercado por municípios com desmatamento oposto ao seu). Clipping para 0
+    perderia essa informação; em vez disso, deslocamos para o domínio positivo
+    antes do log1p: log1p(x - min(x)), que preserva a ordenação relativa.
     """
     df = df_mun[_ALL_FEATURES].copy()
 
-    # Log-transform nas variáveis de maior assimetria
+    # Log-transform nas variáveis de maior assimetria (skew > 3)
     for col in ["area_km2", "populacao", "pib_agropecuario", "autos_ibama"]:
         df[col] = np.log1p(df[col].clip(lower=0))
     df["taxa_desmatamento"] = np.log1p(df["taxa_desmatamento"])
-    df["local_moran_i"] = np.log1p(df["local_moran_i"].clip(lower=0))
+
+    # Moran's I: deslocar para domínio ≥ 0 antes do log1p para preservar
+    # valores negativos (não clipar, pois informação de autocorrelação
+    # negativa é relevante para separar municípios isolados dos clusters)
+    moran_min = df["local_moran_i"].min()
+    shift = max(0, -moran_min)  # 0 se já positivo, |min| se negativo
+    df["local_moran_i"] = np.log1p(df["local_moran_i"] + shift)
 
     qt = QuantileTransformer(n_quantiles=min(500, len(df)),
                               output_distribution="uniform",
@@ -122,7 +147,6 @@ def _preprocess_features(df_mun: pd.DataFrame) -> np.ndarray:
 def run_clustering(
     input_path: str = "data/processed/dataset.parquet",
     output_path: str = "data/processed/dataset.parquet",
-    mapa_path: str = "reports/clusters_mapa.html",
     desc_path: str = "reports/clusters_description.md",
 ) -> gpd.GeoDataFrame:
     """
@@ -137,7 +161,6 @@ def run_clustering(
     Args:
         input_path: Dataset com lag features e Moran's I (pós TASK-08).
         output_path: Dataset atualizado com cluster_id.
-        mapa_path: Mapa Folium de saída com clusters.
         desc_path: Arquivo Markdown com descrição dos clusters.
 
     Returns:
@@ -165,6 +188,27 @@ def run_clustering(
     logger.info("Executando HDBSCAN (params: %s)...", _HDBSCAN_PARAMS)
     clusterer = hdbscan.HDBSCAN(**_HDBSCAN_PARAMS)
     labels = clusterer.fit_predict(X)
+
+    n_clusters = len(set(labels) - {-1})
+    n_noise_before = (labels == -1).sum()
+    logger.info("  → %d clusters + %d municípios como ruído antes do post-assignment",
+                n_clusters, n_noise_before)
+
+    # Post-assignment via soft clustering: municípios classificados como ruído
+    # recebem o cluster com maior afinidade de densidade. Isso garante que
+    # todo município tem um perfil — ruído em HDBSCAN não significa anomalia,
+    # mas sim baixa densidade local no espaço de features.
+    if n_noise_before > 0:
+        membership_vectors = hdbscan.all_points_membership_vectors(clusterer)
+        noise_mask = labels == -1
+        if membership_vectors.shape[1] > 0:
+            soft_labels = np.argmax(membership_vectors[noise_mask], axis=1)
+            labels = labels.copy()
+            labels[noise_mask] = soft_labels
+            n_noise_after = (labels == -1).sum()
+            logger.info("  → %d municípios reatribuídos via soft clustering | restam %d como ruído",
+                        n_noise_before - n_noise_after, n_noise_after)
+
     df_mun["cluster_id"] = labels
 
     n_clusters = len(set(labels) - {-1})
@@ -212,10 +256,7 @@ def run_clustering(
     gdf.to_parquet(output_path, index=False)
     logger.info("Dataset com cluster_id salvo em '%s'.", output_path)
 
-    # ── 8. Mapa Folium ────────────────────────────────────────────────────────
-    _plot_clusters_map(df_mun, gdf, mapa_path)
-
-    # ── 9. Descrição textual dos clusters ─────────────────────────────────────
+    # ── 8. Descrição textual dos clusters ────────────────────────────────────
     _write_cluster_description(cluster_profiles, sil, n_noise, desc_path)
 
     return gdf
@@ -242,195 +283,49 @@ def _describe_clusters(df_mun: pd.DataFrame) -> pd.DataFrame:
     return profiles
 
 
-def _plot_clusters_map(
-    df_mun: pd.DataFrame,
-    gdf: gpd.GeoDataFrame,
-    mapa_path: str,
-) -> None:
-    """Gera mapa Folium com municípios coloridos por cluster."""
-    try:
-        import folium
-        from folium.features import GeoJsonTooltip
-    except ImportError:
-        logger.warning("folium não disponível; mapa de clusters não gerado.")
-        return
-
-    Path(mapa_path).parent.mkdir(parents=True, exist_ok=True)
-
-    # Paleta de cores por cluster (cluster -1 = cinza)
-    n_clusters = df_mun["cluster_id"].max() + 1
-    palette = [
-        "#e41a1c", "#377eb8", "#4daf4a", "#984ea3",
-        "#ff7f00", "#a65628", "#f781bf", "#999999",
-        "#66c2a5", "#fc8d62",
-    ]
-    color_map = {i: palette[i % len(palette)] for i in range(n_clusters)}
-    color_map[-1] = "#94a3b8"  # slate-400 — visível sobre fundo branco CartoDB
-
-    cluster_by_mun = df_mun.set_index("cod_ibge")["cluster_id"].to_dict()
-
-    # Geometria: usar primeiro ano para não duplicar geometrias
-    gdf_mapa = (
-        gdf[gdf["ano"] == gdf["ano"].min()]
-        [["cod_ibge", "municipio", "uf", "geometry"]]
-        .copy()
-    )
-    gdf_mapa["cluster_id"] = gdf_mapa["cod_ibge"].map(cluster_by_mun).fillna(-1).astype(int)
-    gdf_mapa["taxa_media"] = gdf_mapa["cod_ibge"].map(
-        df_mun.set_index("cod_ibge")["taxa_desmatamento"].to_dict()
-    )
-    # Normalizar geometrias: GeoJsonTooltip não suporta GeometryCollection
-    from shapely.ops import unary_union
-    from shapely.geometry import MultiPolygon, Polygon
-    def _to_multipolygon(g):
-        if g is None or g.is_empty:
-            return g
-        if isinstance(g, (Polygon, MultiPolygon)):
-            return g
-        polys = [p for p in getattr(g, "geoms", []) if isinstance(p, (Polygon, MultiPolygon))]
-        return unary_union(polys) if polys else g
-    gdf_mapa["geometry"] = gdf_mapa["geometry"].apply(_to_multipolygon)
-
-    # Perfil estatístico por cluster para o painel descritivo
-    profiles = _describe_clusters(df_mun)
-
-    m = folium.Map(location=[-5, -55], zoom_start=5, tiles="CartoDB positron")
-
-    # Um único GeoJson com todas as features — muito mais eficiente que 772 layers
-    folium.GeoJson(
-        gdf_mapa.__geo_interface__,
-        style_function=lambda feature: {
-            "fillColor": color_map.get(feature["properties"]["cluster_id"], "#94a3b8"),
-            "color": "#334155",
-            "weight": 0.3,
-            "fillOpacity": 0.75,
-        },
-        tooltip=folium.GeoJsonTooltip(
-            fields=["municipio", "uf", "cluster_id", "taxa_media"],
-            aliases=["Município", "UF", "Cluster", "Taxa média (%/ano)"],
-            localize=True,
-        ),
-    ).add_to(m)
-
-    # Painel lateral direito com descrição dos clusters
-    panel_html = _build_cluster_panel_html(profiles, color_map)
-    m.get_root().html.add_child(folium.Element(panel_html))
-
-    m.save(mapa_path)
-    logger.info("Mapa de clusters salvo em '%s'.", mapa_path)
-
-
 def _cluster_label(row: pd.Series) -> str:
-    """Rótulo descritivo automático baseado no perfil dominante do cluster."""
-    taxa = row["taxa_desfm_media"]
-    uc   = row["uc_pct_media"]
-    ti   = row["ti_pct_media"]
+    """
+    Rótulo descritivo para o cluster baseado em seu perfil dominante.
+
+    A lógica avalia as características mais distintas de cada perfil em
+    ordem de especificidade, da mais rara (alta pressão sem proteção) para
+    a mais comum (pequenos municípios periféricos).
+    """
+    taxa  = row["taxa_desfm_media"]
+    uc    = row["uc_pct_media"]
+    ti    = row["ti_pct_media"]
     autos = row["autos_ibama_media"]
     area  = row["area_km2_media"]
     pib   = row["pib_agro_media"]
+    trend = row["desmat_trend_media"]
     prot  = uc + ti
 
-    if prot > 50:
-        return "Alta proteção territorial (UC + TI)"
-    if uc > 25 and ti < 5:
-        return "Alta cobertura de Unidades de Conservação"
-    if ti > 15 and autos > 150:
-        return "Fronteira com TIs e alta fiscalização"
-    if taxa > 0.18 and autos > 150:
-        return "Alta pressão agrícola — fronteira ativa"
-    if area > 10_000:
-        return "Grandes municípios com desmatamento moderado"
-    if area < 3_000 and pib < 80_000:
-        return "Pequenos municípios — baixa pressão"
-    return "Perfil intermediário"
+    # Cluster do Arco: alta taxa, nenhuma proteção, alto PIB agropecuário
+    if taxa > 0.35 and prot < 10:
+        return "Arco do desmatamento — alta pressão sem áreas protegidas"
 
+    # Grandes municípios com dupla proteção (UCs e Terras Indígenas)
+    # mas sob pressão crescente (trend > 1.5 = aceleração recente)
+    if area > 10_000 and prot > 35 and trend > 1.5:
+        return "Grandes municípios — proteção formal com pressão crescente"
 
-def _build_cluster_panel_html(profiles: pd.DataFrame, color_map: dict) -> str:
-    """Gera HTML do painel lateral com a descrição de cada cluster."""
-    cards = ""
-    profiles_sorted = profiles.sort_values("cluster_id")
+    # Presença significativa de Terras Indígenas — barreira parcial
+    if ti > 15 and taxa > 0.12:
+        return "Fronteira agrícola com presença de Terras Indígenas"
 
-    # Adicionar linha do ruído manualmente
-    n_noise = 0  # será sobrescrito se disponível via df_mun, mas profiles só tem clusters reais
+    # Municípios onde Unidades de Conservação dominam — barreira eficaz
+    if uc > 25 and ti < 10 and taxa < 0.15:
+        return "Proteção por Unidades de Conservação reduz pressão"
 
-    for _, row in profiles_sorted.iterrows():
-        cid   = int(row["cluster_id"])
-        color = color_map.get(cid, "#94a3b8")
-        label = _cluster_label(row)
-        n     = int(row["n_municipios"])
-        taxa  = row["taxa_desfm_media"]
-        area  = row["area_km2_media"] / 1000
-        pop   = row["pop_media"] / 1000
-        pib   = row["pib_agro_media"] / 1000
-        uc    = row["uc_pct_media"]
-        ti    = row["ti_pct_media"]
-        autos = row["autos_ibama_media"]
+    # Municípios grandes sem proteção formal mas com pressão moderada
+    if area > 10_000 and prot < 25:
+        return "Grandes municípios com expansão agrícola moderada"
 
-        # Barra proporcional (max referência = 0.25 %/ano)
-        bar_w = min(100, (taxa / 0.25) * 100)
+    # Municípios pequenos, periféricos, baixo agronegócio
+    if area < 2_500 and pib < 80_000 and taxa < 0.12:
+        return "Municípios periféricos com baixa pressão de desmatamento"
 
-        cards += f"""
-        <div style="border:1px solid {color}40;border-radius:6px;padding:10px;margin-bottom:8px;background:#fff;">
-          <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
-            <span style="display:inline-block;width:12px;height:12px;background:{color};border-radius:2px;flex-shrink:0;"></span>
-            <b style="font-size:12px;color:#0f172a;">Cluster {cid}</b>
-            <span style="font-size:11px;color:#64748b;"> — {n} municípios</span>
-          </div>
-          <div style="font-size:11px;color:#334155;margin-bottom:6px;font-style:italic;">{label}</div>
-          <div style="margin-bottom:6px;">
-            <div style="font-size:10px;color:#94a3b8;margin-bottom:2px;">Taxa desmat. média</div>
-            <div style="background:#e2e8f0;border-radius:4px;height:6px;">
-              <div style="width:{bar_w:.1f}%;background:{color};height:6px;border-radius:4px;"></div>
-            </div>
-            <div style="font-size:10px;color:#475569;margin-top:1px;">{taxa:.4f} %/ano</div>
-          </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 8px;font-size:10px;">
-            <div><span style="color:#94a3b8;">Área média</span><br><b>{area:.1f} mil km²</b></div>
-            <div><span style="color:#94a3b8;">Pop. média</span><br><b>{pop:.1f} mil hab</b></div>
-            <div><span style="color:#94a3b8;">Cobertura UC</span><br><b>{uc:.1f}%</b></div>
-            <div><span style="color:#94a3b8;">Cobertura TI</span><br><b>{ti:.1f}%</b></div>
-            <div><span style="color:#94a3b8;">PIB agro médio</span><br><b>R$ {pib:.1f} M</b></div>
-            <div><span style="color:#94a3b8;">Autos IBAMA</span><br><b>{autos:.0f}/mun.</b></div>
-          </div>
-        </div>"""
-
-    # Card do ruído (sem stats detalhadas)
-    noise_color = color_map.get(-1, "#94a3b8")
-    cards += f"""
-    <div style="border:1px solid {noise_color}40;border-radius:6px;padding:10px;margin-bottom:8px;background:#f8fafc;">
-      <div style="display:flex;align-items:center;gap:6px;">
-        <span style="display:inline-block;width:12px;height:12px;background:{noise_color};border-radius:2px;"></span>
-        <b style="font-size:12px;color:#64748b;">Ruído (−1)</b>
-      </div>
-      <div style="font-size:11px;color:#94a3b8;margin-top:4px;font-style:italic;">
-        Municípios sem perfil dominante — não se encaixam em nenhum cluster.
-      </div>
-    </div>"""
-
-    return f"""
-    <div style="
-        position: fixed;
-        top: 80px;
-        right: 10px;
-        width: 280px;
-        max-height: calc(100vh - 100px);
-        overflow-y: auto;
-        background: white;
-        border: 1px solid #e2e8f0;
-        border-radius: 8px;
-        padding: 12px;
-        z-index: 1000;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.12);
-        font-family: system-ui, sans-serif;
-    ">
-      <div style="font-size:13px;font-weight:700;color:#0f172a;margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid #22c55e;">
-        🔵 Clusters HDBSCAN
-      </div>
-      {cards}
-      <div style="font-size:10px;color:#94a3b8;text-align:center;margin-top:4px;">
-        Silhouette = 0.225 · {len(profiles)} clusters
-      </div>
-    </div>"""
+    return "Perfil intermediário de expansão agrícola"
 
 
 def _write_cluster_description(
@@ -454,18 +349,18 @@ def _write_cluster_description(
     profiles_sorted = profiles.sort_values("taxa_desfm_media", ascending=False)
 
     for _, row in profiles_sorted.iterrows():
-        cid = int(row["cluster_id"])
-        n = int(row["n_municipios"])
-        taxa = row["taxa_desfm_media"]
-        area = row["area_km2_media"] / 1000  # em mil km²
-        pib = row["pib_agro_media"] / 1000   # em milhões R$
-        pop = row["pop_media"] / 1000         # em mil habitantes
-        uc_pct = row["uc_pct_media"]
-        ti_pct = row["ti_pct_media"]
+        cid   = int(row["cluster_id"])
+        n     = int(row["n_municipios"])
+        taxa  = row["taxa_desfm_media"]
+        area  = row["area_km2_media"] / 1000
+        pib   = row["pib_agro_media"] / 1000
+        pop   = row["pop_media"] / 1000
+        uc    = row["uc_pct_media"]
+        ti    = row["ti_pct_media"]
         autos = row["autos_ibama_media"]
+        trend = row["desmat_trend_media"]
 
-        # Interpretação automática baseada nos valores
-        perfil = _interpret_cluster(taxa, uc_pct, ti_pct, autos, area)
+        perfil = _cluster_label(row)
 
         lines += [
             f"## Cluster {cid} — {perfil}\n",
@@ -474,10 +369,11 @@ def _write_cluster_description(
             f"**Área média:** {area:.1f} mil km²  ",
             f"**PIB agropecuário médio:** R$ {pib:.1f} M  ",
             f"**População média:** {pop:.1f} mil hab  ",
-            f"**Cobertura UC:** {uc_pct:.1f}%  ",
-            f"**Cobertura TI:** {ti_pct:.1f}%  ",
-            f"**Autos IBAMA (média histórica):** {autos:.0f}  \n",
-            f"**Interpretação:** {_detailed_description(cid, taxa, uc_pct, ti_pct, autos, area, pib)}\n",
+            f"**Cobertura por Unidades de Conservação:** {uc:.1f}%  ",
+            f"**Cobertura por Terras Indígenas:** {ti:.1f}%  ",
+            f"**Autos de infração IBAMA (média histórica):** {autos:.0f}  ",
+            f"**Tendência recente de desmatamento:** {trend:.2f}× (1.0 = estável)  \n",
+            f"**Interpretação:** {_detailed_description(taxa, uc, ti, autos, area, pib, trend)}\n",
             "---\n",
         ]
 
@@ -486,57 +382,63 @@ def _write_cluster_description(
     logger.info("Descrição dos clusters salva em '%s'.", desc_path)
 
 
-def _interpret_cluster(
-    taxa: float,
-    uc_pct: float,
-    ti_pct: float,
-    autos: float,
-    area: float,
-) -> str:
-    """Retorna rótulo interpretativo curto para o cluster."""
-    if taxa > 0.3 and (uc_pct + ti_pct) < 30:
-        return "Alta pressão de desmatamento"
-    if taxa > 0.1 and autos > 20:
-        return "Fronteira agrícola ativa"
-    if (uc_pct + ti_pct) > 50:
-        return "Alta proteção territorial"
-    if taxa < 0.05 and area < 5:
-        return "Baixo risco estrutural"
-    if taxa > 0.1 and (uc_pct + ti_pct) > 30:
-        return "Pressão sobre áreas protegidas"
-    return "Perfil intermediário"
-
 
 def _detailed_description(
-    cid: int,
     taxa: float,
     uc_pct: float,
     ti_pct: float,
     autos: float,
     area: float,
     pib: float,
+    trend: float,
 ) -> str:
-    """Gera parágrafo interpretativo detalhado."""
-    if taxa > 0.3:
-        base = "Municípios com alta taxa de desmatamento, característicos do Arco do Desmatamento"
-    elif taxa > 0.1:
-        base = "Municípios com desmatamento moderado, típicos de fronteiras de expansão agrícola"
+    """Gera parágrafo interpretativo detalhado para o Markdown de clusters."""
+    if taxa > 0.35:
+        base = (
+            "Municípios com alta taxa histórica de desmatamento, representativos do "
+            "Arco do Desmatamento amazônico. Sem cobertura expressiva de áreas protegidas "
+            "e com forte pressão do agronegócio"
+        )
+    elif taxa > 0.15:
+        base = "Municípios com desmatamento moderado a alto, típicos de fronteiras de expansão agrícola"
+    elif taxa > 0.08:
+        base = "Municípios com desmatamento em nível intermediário"
     else:
-        base = "Municípios com baixa pressão de desmatamento direto"
+        base = "Municípios com baixa pressão de desmatamento"
 
-    if uc_pct > 30 or ti_pct > 30:
-        prot = f"; têm alta proporção de área protegida (UC: {uc_pct:.0f}%, TI: {ti_pct:.0f}%)"
-    else:
-        prot = ""
+    parts = [base]
 
-    if autos > 30:
-        fiscalization = f"; intensa fiscalização ambiental ({autos:.0f} autos/município em média)"
-    elif autos > 10:
-        fiscalization = f"; fiscalização ambiental moderada ({autos:.0f} autos/município)"
-    else:
-        fiscalization = ""
+    if uc_pct > 25:
+        parts.append(
+            f"alta cobertura por Unidades de Conservação ({uc_pct:.0f}% do território), "
+            "o que atua como barreira eficaz à conversão de vegetação nativa"
+        )
+    if ti_pct > 15:
+        parts.append(
+            f"presença significativa de Terras Indígenas ({ti_pct:.0f}% do território), "
+            "demarcadas legalmente e reconhecidas como barreira ao desmatamento"
+        )
+    if autos > 300:
+        parts.append(
+            f"elevada fiscalização ambiental ({autos:.0f} autos de infração por município em média), "
+            "refletindo alta pressão sobre a legislação ambiental"
+        )
+    elif autos > 80:
+        parts.append(f"fiscalização ambiental moderada ({autos:.0f} autos por município)")
 
-    return f"{base}{prot}{fiscalization}."
+    if trend > 1.8:
+        parts.append(
+            f"tendência recente preocupante: desmatamento acelerou {trend:.1f}× "
+            "em relação ao histórico (2020–2025 vs. 2008–2015)"
+        )
+    elif trend < 0.6:
+        parts.append(
+            f"tendência positiva: desmatamento recuou para {trend:.1f}× do nível histórico"
+        )
+
+    if len(parts) == 1:
+        return parts[0] + "."
+    return parts[0] + "; " + "; ".join(parts[1:]) + "."
 
 
 if __name__ == "__main__":

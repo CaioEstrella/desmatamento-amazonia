@@ -423,7 +423,7 @@ def slide_shap(prs: Presentation) -> None:
     add_text_box(sl, "Interpretabilidade — SHAP", 0.65, 0.4, 12.0, 0.7,
                  font_size=28, bold=True, color=SLATE_900)
 
-    beeswarm = Path("reports/shap_beeswarm.png")
+    beeswarm = Path("data/outputs/shap_beeswarm.png")
     if beeswarm.exists():
         sl.shapes.add_picture(
             str(beeswarm),
@@ -567,7 +567,7 @@ def slide_proximos(prs: Presentation) -> None:
     tf.margin_top  = Inches(0.1)
     p = tf.paragraphs[0]
     r = p.add_run()
-    r.text = "Caio Figueiredo · caio.g.figueiredo@accenture.com · Data Science Portfolio"
+    r.text = "Caio Figueiredo · Data Science Portfolio"
     r.font.size  = Pt(12)
     r.font.color.rgb = VERDE_ESCURO
 

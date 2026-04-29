@@ -323,38 +323,46 @@ def train_final_model(
         preds = np.clip(model_fold.predict(X.iloc[val_idx]), 0, None)
 
         y_val = y.iloc[val_idx]
+        mae_fold = float(mean_absolute_error(y_val, preds))
+        # WMAPE: Σ|erro| / Σy_true — robusto para targets positivos, pondera municípios críticos
+        wmape_fold = float(np.sum(np.abs(y_val.values - preds)) / np.sum(y_val.values) * 100)
         fold_metrics = {
             "uf": fold_name,
             "n_samples": len(val_idx),
             "rmse": float(_rmse(y_val, preds)),
-            "mae": float(mean_absolute_error(y_val, preds)),
+            "mae": mae_fold,
             "r2": float(r2_score(y_val, preds)),
+            "wmape": wmape_fold,
         }
         metrics_by_fold[f"fold_{fold_i}"] = fold_metrics
-        logger.info("  Fold %d (%s): RMSE=%.4f | MAE=%.4f | R²=%.4f",
+        logger.info("  Fold %d (%s): RMSE=%.4f | MAE=%.4f | R²=%.4f | WMAPE=%.1f%%",
                     fold_i, fold_name,
-                    fold_metrics["rmse"], fold_metrics["mae"], fold_metrics["r2"])
+                    fold_metrics["rmse"], fold_metrics["mae"],
+                    fold_metrics["r2"], fold_metrics["wmape"])
 
     # Média dos folds
-    rmse_mean = np.mean([m["rmse"] for m in metrics_by_fold.values()])
-    mae_mean = np.mean([m["mae"] for m in metrics_by_fold.values()])
-    r2_mean = np.mean([m["r2"] for m in metrics_by_fold.values()])
+    rmse_mean  = np.mean([m["rmse"]  for m in metrics_by_fold.values()])
+    mae_mean   = np.mean([m["mae"]   for m in metrics_by_fold.values()])
+    r2_mean    = np.mean([m["r2"]    for m in metrics_by_fold.values()])
+    wmape_mean = np.mean([m["wmape"] for m in metrics_by_fold.values()])
     metrics_by_fold["mean"] = {
         "uf": "MÉDIA",
         "n_samples": sum(m["n_samples"] for m in metrics_by_fold.values()),
         "rmse": float(rmse_mean),
         "mae": float(mae_mean),
         "r2": float(r2_mean),
+        "wmape": float(wmape_mean),
     }
-    logger.info("  Média: RMSE=%.4f | MAE=%.4f | R²=%.4f", rmse_mean, mae_mean, r2_mean)
+    logger.info("  Média: RMSE=%.4f | MAE=%.4f | R²=%.4f | WMAPE=%.1f%%",
+                rmse_mean, mae_mean, r2_mean, wmape_mean)
 
     # Tabela de métricas
-    rows = [(f["uf"], f["n_samples"], f["rmse"], f["mae"], f["r2"])
+    rows = [(f["uf"], f["n_samples"], f["rmse"], f["mae"], f["r2"], f["wmape"])
             for f in metrics_by_fold.values()]
-    header = f"\n{'UF(s)':30s} {'N':>6} {'RMSE':>8} {'MAE':>8} {'R²':>8}"
+    header = f"\n{'UF(s)':30s} {'N':>6} {'RMSE':>8} {'MAE':>8} {'R²':>8} {'WMAPE%':>8}"
     logger.info("Tabela de métricas por fold:%s", header)
-    for fold_name, n, rmse, mae, r2 in rows:
-        logger.info("  %-30s %6d %8.4f %8.4f %8.4f", fold_name, n, rmse, mae, r2)
+    for fold_name, n, rmse, mae, r2, wmape in rows:
+        logger.info("  %-30s %6d %8.4f %8.4f %8.4f %7.1f%%", fold_name, n, rmse, mae, r2, wmape)
 
     assert r2_mean >= 0.65, (
         f"R² médio abaixo do esperado: {r2_mean:.4f} (mínimo: 0.65). "

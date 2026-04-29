@@ -6,7 +6,7 @@ Gera três tipos de visualização:
     2. Waterfall plots para os 5 municípios de maior risco previsto
     3. Bar plot de importância SHAP média por cluster HDBSCAN
 
-Outputs em reports/:
+Outputs em data/outputs/:
     shap_beeswarm.png
     shap_waterfall_<municipio>.png  (5 arquivos)
     shap_por_cluster.png
@@ -27,6 +27,25 @@ import numpy as np
 import pandas as pd
 
 logger = logging.getLogger(__name__)
+
+_BG    = "#ede8dc"   # cor de fundo dos gráficos (tom secundário, levemente mais escuro que o app)
+_GRID  = "#d5cfc5"   # cor das linhas de grade
+
+
+def _style_ax(ax) -> None:
+    """Aplica fundo e grid padronizados a um eixo matplotlib."""
+    ax.set_facecolor(_BG)
+    ax.yaxis.grid(True, color=_GRID, linewidth=0.7, zorder=0)
+    ax.set_axisbelow(True)
+    ax.spines[["top", "right"]].set_visible(False)
+
+
+def _style_fig(fig) -> None:
+    """Aplica fundo padronizado à figura e a todos os seus eixos."""
+    fig.patch.set_facecolor(_BG)
+    for ax in fig.axes:
+        _style_ax(ax)
+
 
 _EXCLUDE_COLS = {
     "cod_ibge", "municipio", "taxa_desmatamento",
@@ -91,9 +110,10 @@ def plot_beeswarm(
         show=False,
         plot_size=(10, 8),
     )
+    _style_fig(plt.gcf())
     plt.title("Importância SHAP — Top features (taxa de desmatamento)", fontsize=13)
     plt.tight_layout()
-    plt.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.savefig(output_path, dpi=150, bbox_inches="tight", facecolor=_BG)
     plt.close("all")
     logger.info("  Beeswarm salvo em '%s'.", output_path)
 
@@ -128,7 +148,9 @@ def plot_waterfall_top5(
         ano_val  = df.loc[idx, "ano"]
 
         shap.plots.waterfall(shap_values[pos], show=False)
-        plt.gcf().set_size_inches(10, 6)
+        fig_wf = plt.gcf()
+        fig_wf.set_size_inches(14, 7)
+        _style_fig(fig_wf)
         plt.title(
             f"SHAP Waterfall — {mun_name} ({uf_code}) · {ano_val}",
             fontsize=12,
@@ -137,7 +159,7 @@ def plot_waterfall_top5(
 
         safe_name = mun_name.lower().replace(" ", "_").replace("/", "-")
         out = Path(output_dir) / f"shap_waterfall_{safe_name}.png"
-        plt.savefig(out, dpi=150, bbox_inches="tight")
+        plt.savefig(out, dpi=150, bbox_inches="tight", facecolor=_BG)
         plt.close()
         logger.info("  Waterfall %d/%d salvo em '%s'.", rank, 5, out)
 
@@ -169,21 +191,26 @@ def plot_shap_by_cluster(
         .head(15)
     )
 
+    # Mesma paleta da aba Clusters do dashboard
+    _PALETTE = ["#e41a1c", "#377eb8", "#4daf4a", "#984ea3", "#ff7f00"]
+
     n_clusters = cluster_importance.shape[1]
-    fig, ax = plt.subplots(figsize=(12, 7))
+    fig, ax = plt.subplots(figsize=(12, 7), facecolor=_BG)
+    _style_ax(ax)
 
     x = np.arange(len(cluster_importance))
     width = 0.8 / max(n_clusters, 1)
-    cmap = plt.get_cmap("tab10")
 
     for i, col in enumerate(cluster_importance.columns):
-        label = f"Cluster {int(col)}" if col != -1 else "Ruído"
+        cid = int(col)
+        color = "#94a3b8" if cid == -1 else _PALETTE[cid % len(_PALETTE)]
+        label = f"Cluster {cid}" if cid != -1 else "Ruído"
         ax.bar(
             x + i * width,
             cluster_importance[col],
             width,
             label=label,
-            color=cmap(i),
+            color=color,
             alpha=0.85,
         )
 
@@ -195,7 +222,7 @@ def plot_shap_by_cluster(
     plt.tight_layout()
 
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-    plt.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.savefig(output_path, dpi=150, bbox_inches="tight", facecolor=_BG)
     plt.close()
     logger.info("  SHAP por cluster salvo em '%s'.", output_path)
 
@@ -203,7 +230,7 @@ def plot_shap_by_cluster(
 def run_shap_analysis(
     model_path: str = _MODEL_PATH,
     dataset_path: str = _DATASET_PATH,
-    reports_dir: str = "reports",
+    reports_dir: str = "data/outputs",
 ) -> None:
     """Executa análise SHAP completa e salva todos os plots."""
     model, X, y, df, feature_cols = _load_model_and_data(model_path, dataset_path)

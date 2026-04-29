@@ -153,7 +153,7 @@ def add_temporal_features(
 def add_local_moran(
     input_path: str = "data/processed/dataset.parquet",
     output_path: str = "data/processed/dataset.parquet",
-    moran_plot_path: str = "reports/moran_scatterplot.png",
+    moran_plot_path: str = "data/outputs/moran_scatterplot.png",
 ) -> gpd.GeoDataFrame:
     """
     Adiciona o Local Moran's I da taxa de desmatamento ao dataset.
@@ -167,7 +167,7 @@ def add_local_moran(
     desmatamento (hotspot); valor negativo indica outlier espacial.
 
     Salva um scatterplot de Moran (taxa_desmatamento médio × I médio) em
-    reports/moran_scatterplot.png.
+    data/outputs/moran_scatterplot.png.
 
     Args:
         input_path: Caminho do dataset com taxa_desmat_lag* (pós TASK-07).
