@@ -95,11 +95,11 @@ with dot.subgraph(name="cluster_model") as s:
 
 # ── Outputs ───────────────────────────────────────────────────────────────────
 with dot.subgraph(name="cluster_out") as s:
-    s.attr(label="Outputs  (reports/ + src/dashboard/)", style="rounded,filled",
+    s.attr(label="Outputs  (reports/)", style="rounded,filled",
            fillcolor="#fdf2f8", color="#f0abfc", fontsize="12", fontcolor="#701a75")
-    s.node("dash",   "Dashboard\n(Streamlit / HTML)",      **OUTPUT_node)
+    s.node("dash",   "Dashboard HTML\n(GitHub Pages)",        **OUTPUT_node)
     s.node("shap",   "Relatório SHAP\n(beeswarm, waterfall)", **OUTPUT_node)
-    s.node("slides", "Slide Deck\n(PowerPoint executivo)", **OUTPUT_node)
+    s.node("slides", "Slide Deck\n(PowerPoint executivo)",    **OUTPUT_node)
 
 # ── Arestas ───────────────────────────────────────────────────────────────────
 # Fontes → MCP
