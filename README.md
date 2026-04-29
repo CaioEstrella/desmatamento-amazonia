@@ -89,6 +89,62 @@ Todos os dados são obtidos via **[mcp-brasil](https://github.com/Mcp-Brasil/mcp
 
 ---
 
+## Obtendo os dados
+
+Os scripts de ingestão chamam **APIs públicas diretamente** — não há dependência de nenhum agente de IA para rodar o pipeline. O papel do MCP é explicado abaixo.
+
+### Opção 1 — Python puro (sem IA)
+
+Execute os scripts diretamente. Cada um baixa os dados da API correspondente e salva em `data/raw/`:
+
+```bash
+python -m src.ingestion.ibge_geo   # Shapefile dos municípios — IBGE FTP
+python -m src.ingestion.inpe       # Desmatamento anual — TerraBrasilis WFS
+python -m src.ingestion.ibge       # Pop., PIB agro, área — IBGE Servicodados
+python -m src.ingestion.icmbio     # UCs e Terras Indígenas — TerraBrasilis WFS
+python -m src.ingestion.ibama      # Autos de infração — Dados Abertos IBAMA
+```
+
+Todos os scripts têm **cache local**: se o arquivo já existe em `data/raw/`, a API não é chamada novamente.
+
+### Opção 2 — Com agente MCP (Claude Code, Cursor, Cline etc.)
+
+O projeto inclui configuração para o **[mcp-brasil](https://github.com/Mcp-Brasil/mcp-brasil)**, um servidor MCP que expõe as mesmas APIs como ferramentas de IA. Isso permite usar um agente para explorar os dados interativamente, debugar o pipeline e interpretar os resultados — mas **não é obrigatório** para rodar o código.
+
+Para ativar, crie `.claude/mcp.json` (ou o equivalente do seu cliente):
+
+```json
+{
+  "mcpServers": {
+    "mcp-brasil": {
+      "command": "uvx",
+      "args": ["--from", "mcp-brasil", "python", "-m", "mcp_brasil.server"],
+      "env": {
+        "TRANSPARENCIA_API_KEY": "sua-chave-aqui"
+      }
+    }
+  }
+}
+```
+
+> A chave do Portal da Transparência é gratuita: [api.portaldatransparencia.gov.br](https://api.portaldatransparencia.gov.br). É usada apenas para os dados do IBAMA — os demais scripts funcionam sem ela.
+
+### Endpoints de referência
+
+Caso queira acessar os dados manualmente ou integrar com outra ferramenta:
+
+| Fonte | Endpoint |
+|---|---|
+| INPE/PRODES — desmatamento | `https://terrabrasilis.dpi.inpe.br/geoserver/prodes-legal-amz/ows` (WFS 2.0) |
+| INPE/PRODES — municípios | mesma base, camada `prodes-legal-amz:municipalities_legal_amazon` |
+| ICMBio — UCs | mesma base, camada `prodes-legal-amz:conservation_units_legal_amazon` |
+| ICMBio — TIs | mesma base, camada `prodes-legal-amz:indigenous_area_legal_amazon` |
+| IBGE — socioeconômico | `https://servicodados.ibge.gov.br/api/v3/agregados/` |
+| IBGE — shapefile | `https://geoftp.ibge.gov.br/organizacao_do_territorio/malhas_territoriais/malhas_municipais/municipio_2022/Brasil/BR/BR_Municipios_2022.zip` |
+| IBAMA — autos de infração | `https://dadosabertos.ibama.gov.br/dados/SIFISC/auto_infracao/auto_infracao/auto_infracao_csv.zip` |
+
+---
+
 ## Estrutura do repositório
 
 ```
@@ -100,7 +156,7 @@ desmatamento-amazonia/
 │   ├── design.md
 │   └── tasks.md
 ├── data/
-│   ├── raw/                # Dados brutos via mcp-brasil (gitignore)
+│   ├── raw/                # Dados brutos coletados pelos scripts de ingestão (gitignore)
 │   ├── processed/          # Dataset consolidado municipio×ano (gitignore)
 │   └── outputs/            # Predições, métricas, SHAP (gitignore)
 ├── notebooks/              # EDA exploratória
