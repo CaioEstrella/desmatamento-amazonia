@@ -77,7 +77,7 @@ desmatamento-amazonia/
 │   ├── clustering/         # HDBSCAN e perfis de municípios
 │   ├── model/              # LightGBM, Optuna, SHAP
 │   └── dashboard/          # Streamlit e outputs visuais
-├── reports/                # Slide deck e relatório HTML final
+├── reports/                # Dashboard HTML, slide deck e diagrama de arquitetura
 └── requirements.txt
 ```
 
@@ -164,6 +164,66 @@ python src/model/explain.py   # SHAP
 
 # Dashboard
 streamlit run src/dashboard/app.py
+```
+
+---
+
+## Outputs e Visualizações
+
+### Arquitetura do Pipeline
+
+![Arquitetura do Pipeline](reports/arquitetura.png)
+
+O diagrama acima mostra o fluxo completo do projeto, desde as fontes públicas até os outputs finais. Para regenerar:
+
+```bash
+python src/reports/build_arquitetura.py
+```
+
+---
+
+### Dashboards
+
+O projeto oferece dois dashboards complementares:
+
+#### Dashboard HTML — `reports/dashboard.html`
+
+Dashboard **single-file, sem dependências**, pronto para distribuição. Abre diretamente no navegador sem precisar de servidor Python.
+
+- **Mapa coroplético** interativo (Leaflet.js) com score de risco 0–100 por município
+- **Ranking** dos 20 municípios de maior risco, filtrável por ano e UF
+- **Aba de Clusters** — distribuição espacial dos perfis HDBSCAN com cards descritivos
+- **Série temporal** — evolução do desmatamento por estado (2008–2026)
+- **SHAP** — beeswarm global, importância por cluster e waterfall dos top-5 municípios
+- Suporte a **tema claro/escuro**
+- Filtros por **ano** e **estado (UF)**
+
+Para regenerar após novo ciclo de predições:
+
+```bash
+python -m src.dashboard.build_html
+```
+
+#### Dashboard Streamlit — `src/dashboard/app.py`
+
+Dashboard **interativo com servidor**, com filtros adicionais por cluster HDBSCAN e visualizações Plotly/Folium.
+
+```bash
+streamlit run src/dashboard/app.py
+```
+
+Requer Python e dependências instaladas. Acessa automaticamente `data/outputs/predictions.parquet`.
+
+---
+
+### Slide Deck Executivo — `reports/slide_deck_executivo.pptx`
+
+Apresentação PowerPoint com 10 slides widescreen (16:9) cobrindo contexto, metodologia, resultados do modelo, mapa de risco e recomendações. Gerado automaticamente a partir dos dados de predição.
+
+Para regenerar:
+
+```bash
+python -m src.reports.build_pptx
 ```
 
 ---
