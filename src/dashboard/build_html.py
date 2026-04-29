@@ -505,26 +505,49 @@ tr:nth-child(even) td { background-color: var(--row-even) !important; }
 ::-webkit-scrollbar { width:5px; height:5px; }
 ::-webkit-scrollbar-track { background: var(--bg-app); }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius:3px; }
+
+/* ── Responsivo (mobile-first) ─────────────────────────────────────── */
+#sidebar-toggle { display: none; }
+#sidebar-overlay {
+  display: none; position: fixed; inset: 0;
+  background: rgba(0,0,0,.4); z-index: 99;
+}
+#sidebar-overlay.sidebar-open { display: block; }
+@media (max-width: 767px) {
+  #sidebar-toggle { display: block; }
+  #header-model   { display: none !important; }
+  #header-sub     { font-size: 10px; }
+  aside#sidebar {
+    position: fixed; top: 56px; left: 0; bottom: 0; width: 240px;
+    z-index: 100; transform: translateX(-100%); transition: transform .25s;
+  }
+  aside#sidebar.sidebar-open { transform: translateX(0); }
+  #kpi-bar { grid-template-columns: repeat(2, minmax(0,1fr)) !important; }
+  #map, #cluster-map { height: 320px !important; }
+  .tab-btn { padding: 9px 10px; font-size: 12px; }
+}
 </style>
 </head>
 <body>
 
 <!-- HEADER -->
-<header id="app-header" class="flex items-center px-6 h-14 shrink-0">
-  <div>
+<header id="app-header" class="flex items-center px-4 h-14 shrink-0 gap-2">
+  <button id="sidebar-toggle" onclick="toggleSidebar()" style="background:none;border:none;font-size:22px;cursor:pointer;padding:2px 6px;color:var(--text-secondary);line-height:1;flex-shrink:0">☰</button>
+  <div class="min-w-0 flex-1">
     <h1>Risco de Desmatamento · Amazônia Legal</h1>
     <p id="header-sub">Ano: __LAST_ANO__ · 808 municípios · 9 estados</p>
   </div>
-  <div class="ml-auto flex items-center gap-3">
+  <div class="ml-auto flex items-center gap-2 shrink-0">
     <span id="header-model">Modelo: LightGBM + Optuna · R²=0.76</span>
     <button id="dark-toggle" onclick="toggleDark()">◑ Tema</button>
   </div>
 </header>
 
-<div class="flex h-[calc(100vh-56px)]">
+<div class="flex h-[calc(100vh-56px)] overflow-hidden">
+<div id="sidebar-overlay" onclick="toggleSidebar()"></div>
 
   <!-- SIDEBAR -->
-  <aside class="w-60 bg-white border-r border-slate-200 flex flex-col p-4 gap-4 overflow-y-auto shrink-0">
+  <aside id="sidebar" class="w-60 bg-white border-r border-slate-200 flex flex-col p-4 gap-4 overflow-y-auto shrink-0">
     <div>
       <label class="block text-xs font-semibold text-slate-500 uppercase mb-1">Ano</label>
       <select id="sel-ano" class="w-full border border-slate-200 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-400">
@@ -628,7 +651,7 @@ tr:nth-child(even) td { background-color: var(--row-even) !important; }
 
       <!-- SHAP -->
       <div id="tab-shap" class="p-4 hidden">
-        <div class="max-w-4xl">
+        <div>
           <h2 class="text-base font-semibold mb-1">Importância Global das Features (SHAP Beeswarm)</h2>
           <p class="text-xs text-slate-500 mb-3">Cada ponto representa um município. Cor vermelha = valor alto da feature; azul = valor baixo. Posição no eixo X = impacto no score previsto.</p>
           <div id="shap-beeswarm-wrap" class="chart-wrap rounded border border-slate-200 p-3 mb-6 text-center text-slate-400 text-sm"></div>
@@ -639,13 +662,13 @@ tr:nth-child(even) td { background-color: var(--row-even) !important; }
 
           <h2 class="text-base font-semibold mb-1">Waterfall — Top-5 Municípios de Maior Risco (2026)</h2>
           <p class="text-xs text-slate-500 mb-3">Cada gráfico mostra a contribuição individual de cada feature para o score do município (vermelho = aumenta o risco, azul = reduz).</p>
-          <div id="shap-waterfall-grid" class="grid grid-cols-2 gap-4"></div>
+          <div id="shap-waterfall-grid" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
         </div>
       </div>
 
       <!-- Dicionário de Features -->
       <div id="tab-dicionario" class="p-4 hidden">
-        <div class="max-w-4xl">
+        <div>
           <h2 class="text-base font-semibold mb-1">Indicadores do Dashboard</h2>
           <p class="text-xs mb-3" style="color:var(--text-muted)">O que cada número no topo da página significa.</p>
           <div class="overflow-auto rounded border border-slate-200 mb-6">
@@ -702,7 +725,7 @@ tr:nth-child(even) td { background-color: var(--row-even) !important; }
       </div>
 
       <!-- Sobre -->
-      <div id="tab-sobre" class="p-6 hidden max-w-3xl">
+      <div id="tab-sobre" class="p-4 hidden">
         <div class="bg-white rounded-lg border border-slate-200 p-6 mb-4">
           <h2 class="text-lg font-bold mb-2 text-green-800">Preditor de Risco de Desmatamento</h2>
           <p class="text-sm text-slate-600 mb-3">
@@ -710,7 +733,7 @@ tr:nth-child(even) td { background-color: var(--row-even) !important; }
             808 municípios da Amazônia Legal, permitindo identificar onde o desmatamento tem maior
             probabilidade de ocorrer no próximo ano.
           </p>
-          <div class="grid grid-cols-2 gap-4 text-sm">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
             <div>
               <h3 class="font-semibold text-slate-700 mb-1">Fontes de Dados</h3>
               <ul class="text-slate-500 space-y-0.5 list-disc list-inside">
@@ -1184,7 +1207,7 @@ function renderShap() {
     { key: 'wf_nova_santa_helena', label: 'Nova Santa Helena (MT)' },
     { key: 'wf_marcelandia',       label: 'Marcelândia (MT)' },
     { key: 'wf_mojui',             label: 'Mojuí dos Campos (PA)' },
-    { key: 'wf_nova_esperanca',    label: 'Nova Esperança do Piriá (PA)' },
+    { key: 'wf_tailandia',          label: 'Tailândia (PA)' },
     { key: 'wf_uniao_sul',         label: 'União do Sul (MT)' },
   ];
   const grid = document.getElementById('shap-waterfall-grid');
@@ -1225,6 +1248,11 @@ function toggleDark() {
   const isDark = document.documentElement.classList.toggle('dark');
   localStorage.setItem('dark-mode', isDark ? '1' : '0');
   document.getElementById('dark-toggle').textContent = isDark ? '○ Tema' : '◑ Tema';
+}
+
+function toggleSidebar() {
+  document.getElementById('sidebar').classList.toggle('sidebar-open');
+  document.getElementById('sidebar-overlay').classList.toggle('sidebar-open');
 }
 (function initTheme() {
   const saved = localStorage.getItem('dark-mode');
