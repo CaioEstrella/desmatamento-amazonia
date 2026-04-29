@@ -231,18 +231,18 @@ def _img_to_b64(path: str) -> str:
 _SHAP_FILES = {
     "beeswarm": "data/outputs/shap_beeswarm.png",
     "cluster":  "data/outputs/shap_por_cluster.png",
-    "wf_nova_santa_helena":        "data/outputs/shap_waterfall_nova_santa_helena.png",
-    "wf_marcelandia":              "data/outputs/shap_waterfall_marcelândia.png",
-    "wf_mojui":                    "data/outputs/shap_waterfall_mojuí_dos_campos.png",
-    "wf_nova_esperanca":           "data/outputs/shap_waterfall_nova_esperança_do_piriá.png",
-    "wf_uniao_sul":                "data/outputs/shap_waterfall_união_do_sul.png",
+    "wf_nova_santa_helena":  "data/outputs/shap_waterfall_nova_santa_helena.png",
+    "wf_marcelandia":        "data/outputs/shap_waterfall_marcelândia.png",
+    "wf_mojui":              "data/outputs/shap_waterfall_mojuí_dos_campos.png",
+    "wf_tailandia":          "data/outputs/shap_waterfall_tailândia.png",
+    "wf_uniao_sul":          "data/outputs/shap_waterfall_união_do_sul.png",
 }
 
 _WF_LABELS = {
     "wf_nova_santa_helena":  "Nova Santa Helena (MT)",
     "wf_marcelandia":        "Marcelândia (MT)",
     "wf_mojui":              "Mojuí dos Campos (PA)",
-    "wf_nova_esperanca":     "Nova Esperança do Piriá (PA)",
+    "wf_tailandia":          "Tailândia (PA)",
     "wf_uniao_sul":          "União do Sul (MT)",
 }
 

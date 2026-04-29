@@ -125,11 +125,12 @@ def _build_2026_features(gdf: gpd.GeoDataFrame) -> pd.DataFrame:
     )
     df_2026["std_desmat_roll3"] = df_2026["cod_ibge"].map(std_series)
 
-    # local_moran_i: usar 2025 como proxy (dado espacial mais recente disponível)
-    # Já copiado de df_base — nenhuma ação adicional necessária.
-
-    # autos_ibama, populacao, pib_agropecuario, area_uc_pct, area_ti_pct:
-    # copiados de 2025 — proxies adequados para o ano corrente.
+    # Variáveis estruturais (autos_ibama, populacao, pib_agropecuario, area_uc_pct,
+    # area_ti_pct, local_moran_i) são copiadas de 2025 como proxy para 2026.
+    # Justificativa: dados reais de 2026 ainda não estão disponíveis (INPE/IBGE
+    # publicam com defasagem de ~12 meses). A premissa de que estas variáveis variam
+    # lentamente ano a ano é razoável para features estruturais. Deve ser revisada
+    # quando os dados de 2026 forem publicados e o pipeline for reexecutado.
 
     return df_2026
 

@@ -260,6 +260,24 @@ Dados geoespaciais violam a suposição de independência entre observações �
 
 O mesmo princípio se aplica à tunagem: a **função objetivo do Optuna usa a média do RMSE nos folds espaciais**, não um split aleatório.
 
+**Limitação da CV:** a validação cruzada adotada avalia *generalização geográfica* — o modelo foi testado em estados que não entraram no treino. Ela não avalia generalização temporal (ex.: prever 2023 com dados até 2022). Dado o regime de desmatamento acelerado pós-2019, resultados podem ser otimistas para cenários de ruptura. A validação temporal walk-forward é identificada como trabalho futuro.
+
+---
+
+## Limitações conhecidas
+
+Este projeto é um portfólio de Data Science; algumas decisões metodológicas foram feitas conscientemente dentro desse escopo.
+
+| Limitação | Impacto | Observação |
+|---|---|---|
+| **Validação geográfica, não temporal** | Métricas podem ser otimistas para anos de ruptura (pós-2019) | CV walk-forward como trabalho futuro |
+| **Score 0–100 é ranking percentílico anual** | Score 80 significa "80º percentil naquele ano", não probabilidade de evento; não é comparável entre anos | Escolha de design intencional — transparência exige comunicação explícita |
+| **Previsão 2026 usa proxies de 2025** | Variáveis estruturais (PIB, UC, população) copiadas do ano anterior | Aceitável dado que estas variáveis variam lentamente |
+| **R² inferior em RR e TO** | Fold 3 (Roraima + Tocantins) tem R²≈0,55 vs. média 0,76 | Dados escassos em regiões esparsas — esperado e documentado |
+| **Sem análise causal** | Correlação ≠ causalidade; autos IBAMA podem ser efeito, não causa | Escopo de portfólio preditivo, não causal |
+| **SHAP calculado sobre dados de treino** | Sem holdout dedicado para SHAP | O modelo foi treinado em todo o histórico disponível |
+| **Sem intervalos de confiança na previsão** | Score pontual sem estimativa de incerteza | Regressão quantílica ou bootstrap seriam necessários |
+
 ---
 
 ## Desenvolvimento

@@ -198,8 +198,11 @@ def add_local_moran(
 
     moran_vals: dict[tuple, float] = {}
 
-    # Calcular pesos de vizinhança uma vez por geometria (não por ano)
-    # Usar apenas os municípios do último ano como referência espacial
+    # Pesos Queen construídos sobre as geometrias do último ano disponível e
+    # reutilizados para todos os anos. Simplificação aceitável: a malha municipal
+    # brasileira é estável desde 2013 (criação de Mojuí dos Campos-PA é o último
+    # evento relevante). Antes de 2013 há pequenas variações que aceitamos como
+    # ruído dado que representam < 0,5 % dos municípios da Amazônia Legal.
     gdf_geom = (
         gdf[gdf["ano"] == anos[-1]][["cod_ibge", "geometry"]]
         .copy()

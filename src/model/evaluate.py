@@ -133,7 +133,7 @@ def plot_waterfall_top5(
     last_ano = df["ano"].max()
     top5_idx = (
         df[df["ano"] == last_ano]
-        .nlargest(5, "taxa_desmatamento")
+        .nlargest(5, "y_pred")
         .index
     )
 
@@ -235,6 +235,11 @@ def run_shap_analysis(
     """Executa análise SHAP completa e salva todos os plots."""
     model, X, y, df, feature_cols = _load_model_and_data(model_path, dataset_path)
     shap_values, _ = _compute_shap_values(model, X)
+
+    # Adiciona predições ao df para que plot_waterfall_top5 selecione
+    # top-5 por risco PREVISTO (não pela taxa real observada).
+    df = df.copy()
+    df["y_pred"] = model.predict(X)
 
     plot_beeswarm(shap_values, X, f"{reports_dir}/shap_beeswarm.png")
     plot_waterfall_top5(shap_values, X, df, reports_dir)

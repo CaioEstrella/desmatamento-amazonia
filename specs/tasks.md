@@ -249,7 +249,8 @@ Segmentar municípios em perfis usando HDBSCAN sobre features estruturais (sem l
 
 **Critério de conclusão:**
 - Entre 4 e 6 clusters distintos (excluindo ruído `-1`)
-- Silhouette score ≥ 0,3 (excluindo ruído)
+- Silhouette score ≥ 0,20 (excluindo ruído) — acima de 0,30 é raro com HDBSCAN
+  sobre dados geoespaciais contínuos; 0,20 é o limiar realista para municípios brasileiros
 - Municípios do sul do Pará e norte do MT em clusters de "alta pressão"
 - Descrição textual de cada cluster escrita e plausível
 

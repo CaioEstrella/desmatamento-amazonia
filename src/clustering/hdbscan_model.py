@@ -9,12 +9,16 @@ Features de clustering (média histórica por município):
     area_km2           — tamanho do município
     populacao          — população estimada
     pib_agropecuario   — PIB agropecuário (R$ 1.000)
-    taxa_desmatamento  — taxa média histórica (target)
     area_uc_pct        — % coberta por Unidades de Conservação
     area_ti_pct        — % coberta por Terras Indígenas
     autos_ibama        — total histórico de autos de infração
     local_moran_i      — autocorrelação espacial local do desmatamento
-    desmat_trend       — razão desmatamento recente / histórico (aceleração)
+
+Nota: `taxa_desmatamento` e `desmat_trend` foram intencionalmente excluídos das
+features de clustering — ambas são derivadas do target do modelo LightGBM.
+Usá-las criaria raciocínio circular: taxa → cluster_id → prediz taxa. O
+`desmat_trend` permanece no DataFrame para interpretação dos clusters, mas não
+entra no HDBSCAN.
 
 Pré-processamento:
     - Log(1+x) nas variáveis de magnitude (area, pop, pib, autos, taxa)
@@ -56,7 +60,6 @@ _CLUSTERING_FEATURES = [
     "area_km2",
     "populacao",
     "pib_agropecuario",
-    "taxa_desmatamento",
     "area_uc_pct",
     "area_ti_pct",
     "autos_ibama",
@@ -82,6 +85,10 @@ def _aggregate_by_municipality(gdf: gpd.GeoDataFrame) -> pd.DataFrame:
     agg_funcs = {f: "mean" for f in _CLUSTERING_FEATURES}
     agg_funcs["municipio"] = "first"
     agg_funcs["uf"] = "first"
+    # taxa_desmatamento: incluída apenas para interpretação/descrição dos clusters.
+    # Não entra no HDBSCAN — excluída de _CLUSTERING_FEATURES para evitar
+    # raciocínio circular com o target do LightGBM.
+    agg_funcs["taxa_desmatamento"] = "mean"
 
     df_mun = (
         gdf.groupby("cod_ibge")
@@ -106,9 +113,6 @@ def _aggregate_by_municipality(gdf: gpd.GeoDataFrame) -> pd.DataFrame:
     return df_mun
 
 
-_ALL_FEATURES = _CLUSTERING_FEATURES + ["desmat_trend"]
-
-
 def _preprocess_features(df_mun: pd.DataFrame) -> np.ndarray:
     """
     Transforma features para o espaço de clusterização.
@@ -123,12 +127,11 @@ def _preprocess_features(df_mun: pd.DataFrame) -> np.ndarray:
     perderia essa informação; em vez disso, deslocamos para o domínio positivo
     antes do log1p: log1p(x - min(x)), que preserva a ordenação relativa.
     """
-    df = df_mun[_ALL_FEATURES].copy()
+    df = df_mun[_CLUSTERING_FEATURES].copy()
 
     # Log-transform nas variáveis de maior assimetria (skew > 3)
     for col in ["area_km2", "populacao", "pib_agropecuario", "autos_ibama"]:
         df[col] = np.log1p(df[col].clip(lower=0))
-    df["taxa_desmatamento"] = np.log1p(df["taxa_desmatamento"])
 
     # Moran's I: deslocar para domínio ≥ 0 antes do log1p para preservar
     # valores negativos (não clipar, pois informação de autocorrelação
@@ -148,6 +151,7 @@ def run_clustering(
     input_path: str = "data/processed/dataset.parquet",
     output_path: str = "data/processed/dataset.parquet",
     desc_path: str = "reports/clusters_description.md",
+    force: bool = False,
 ) -> gpd.GeoDataFrame:
     """
     Executa HDBSCAN nos municípios e adiciona cluster_id ao dataset.
@@ -172,8 +176,8 @@ def run_clustering(
     logger.info("Carregando '%s'...", input_path)
     gdf = gpd.read_parquet(input_path)
 
-    if "cluster_id" in gdf.columns:
-        logger.info("cluster_id já presente. Pulando.")
+    if "cluster_id" in gdf.columns and not force:
+        logger.info("cluster_id já presente. Pulando. Use force=True para reclusterizar.")
         return gdf
 
     # ── 1. Agregar por município ───────────────────────────────────────────────
@@ -447,7 +451,7 @@ if __name__ == "__main__":
         format="%(asctime)s [%(levelname)s] %(message)s",
         datefmt="%H:%M:%S",
     )
-    gdf = run_clustering()
+    gdf = run_clustering(force=True)
     print(f"\nShape: {gdf.shape}")
     print(f"Distribuição de cluster_id:")
     print(gdf.drop_duplicates("cod_ibge")["cluster_id"].value_counts().sort_index().to_string())
